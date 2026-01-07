@@ -141,6 +141,7 @@ class LSTM:
         dh_next = np.zeros((self.batch_size, self.hidden_dim))
         
         for t in range(self.seq_len - 1, -1, -1):
+            x_t = self.input_cache[:, t, :]
             c_t = self.cell_states[:, t, :] # (B, hidden_dim)
             h_t = self.hidden_states[:, t, :]
             
@@ -159,17 +160,53 @@ class LSTM:
             
             dact_c_t = dh_total_t * o_t
             dc_t = (1 - np.tanh(c_t) ** 2) * dact_c_t # dL/dc_t = dL/dact_c * dact_c / dc_t
-            dc_total_t = dc_t + dc_next
+            dc_total_t = dc_t + dc_next # How cell state at t influences t, t_1, ...
             
             df_t = dc_total_t * c_prev_t # dL/df_t = dL/dc_t * dc_t/df_t
             dc_prev_t = dc_total_t * f_t # dL/dc_prev_t = dL/dc_t * dc_t/dc_prev_t
             di_t = dc_total_t * can_t # dL/di_t = dL/dc_t * dc_t/di_t
             dcan_t = dc_total_t * i_t # dL/dcan_t = dL/dc_t * dc_t/dcan_t
             
+            combined_input_t = np.concatenate([h_prev_t, x_t], axis=1) # (B, hidden_dim + input_dim)
+            
+            dcomb_inp_t = np.zeros((self.batch_size, self.input_dim + self.hidden_dim))
+            
             # Derivative of sigmoid(x) = sigmoid(x) * (1 - sigmoid(x))
+            df_preact_t = df_t * f_t * (1 - f_t) # dL/dpreact = dL/dact * dact/dpreact
+            di_preact_t = di_t * i_t * (1 - i_t)
+            dcan_preact_t = dcan_t * (1 - can_t ** 2) # tanh instead of sigmoid
+            do_preact_t = do_t * o_t * (1 - o_t)
+            
+            # dL/dW = X.T @ dL/dh
+            # dL/dX = dL/dh @ W.T
+            
+            # The preacts are our dL/dh
+            
+            dcomb_inp_t += df_preact_t * self.W_f.T # (B, hidden_dim) @ (hidden_dim, hidden_dim + input_dim) = (B, hidden_dim + input_dim)
+            dcomb_inp_t += di_preact_t * self.W_i.T # (B, hidden_dim) @ (hidden_dim, hidden_dim + input_dim) = (B, hidden_dim + input_dim)
+            dcomb_inp_t += dcan_preact_t * self.W_can.T # (B, hidden_dim) @ (hidden_dim, hidden_dim + input_dim) = (B, hidden_dim + input_dim)
+            dcomb_inp_t += do_preact_t * self.W_o.T # (B, hidden_dim) @ (hidden_dim, hidden_dim + input_dim) = (B, hidden_dim + input_dim)
+            
+            self.dW_f += combined_input_t.T @ df_preact_t # (hidden_dim + input_dim, B) @ (B, hidden_dim) = (hidden_dim + input_dim, hidden_dim)
+            self.dW_i += combined_input_t.T @ di_preact_t # (hidden_dim + input_dim, B) @ (B, hidden_dim) = (hidden_dim + input_dim, hidden_dim)
+            self.dW_can += combined_input_t.T @ dcan_preact_t # (hidden_dim + input_dim, B) @ (B, hidden_dim) = (hidden_dim + input_dim, hidden_dim)
+            self.dW_o += combined_input_t.T @ do_preact_t # (hidden_dim + input_dim, B) @ (B, hidden_dim) = (hidden_dim + input_dim, hidden_dim)
+            
+            # input @ W + b = (B, hidden_dim)
+            self.db_f += np.sum(df_preact_t, axis=0) # (hidden_dim,)
+            self.db_i += np.sum(di_preact_t, axis=0) # (hidden_dim,)
+            self.db_can += np.sum(dcan_preact_t, axis=0) # (hidden_dim,)
+            self.db_o += np.sum(do_preact_t, axis=0) # (hidden_dim,)
+
             
             
             
+            
+            
+            
+            
+            
+            dc_next = dc_prev_t            
             
             
             
