@@ -7,19 +7,80 @@ def sigmoid(x):
     return 1 / (1 + np.exp(-x))
 
 class Embedding:
-    pass
+    def __init__(self, input_dim, embed_dim):
+        self.input_cache: Tensor | None = None
+        
+        self.input_dim = input_dim
+        self.embed_dim = embed_dim
+        
+        self.embeddings = np.random.randn(input_dim, embed_dim)
+        
+    def forward(self, x):
+        self.input_cache = x
+        
+        return self.embeddings[x]
+    
+    def backward(self, out_grad):
+        self.dembeddings = np.zeros((self.input_dim, self.embed_dim))
+        np.add.at(self.dembeddings, self.input_cache, out_grad)
+        
+        return self.dembeddings
+    
+    def step(self, learning_rate, clip_val=0.0):
+        if clip_val != 0.0:
+            np.clip(self.dembeddings, -clip_val, clip_val, self.dembeddings)
 
+        self.embeddings -= learning_rate * self.dembeddings
+        
 class SoftmaxCrossEntropy:
     def __init__(self):
-        input_cache: Tensor | None = None
+        self.logits: Tensor | None = None
+        self.targets: Tensor | None = None
+        self.probs: Tensor | None = None
         
-    def forward(self, x: Tensor) -> Tensor:
-        pass
+    def forward(self, logits: Tensor, targets: Tensor) -> Tensor:
+        self.logits = logits # (B, seq_len, output_dim)
+        self.targets = targets
+
+        max_logits = np.max(logits, axis=2, keepdims=True) # (B, seq_len, 1)
+        shifted_logits = logits - max_logits # (B, seq_len, output_dim) - (B, seq_len, 1)
+        
+        exp_logits = np.exp(shifted_logits)
+        exp_sum = np.sum(exp_logits, axis=2, keepdims=True) # (B, seq_len, 1)
+        probs = exp_logits / exp_sum 
+        self.probs = probs
+        
+        log_probs = np.log(probs)
+        log_probs = log_probs * targets # targets is one-hot encoded
+        batch_loss = -np.sum(log_probs, axis=-1) # (B, seq_len)
+        batch_loss = np.mean(batch_loss) # Scalar
+        
+        return batch_loss
+    
+    def backward(self):
+        batch_size = self.logits.shape[0]
+        dlogits = (self.probs - self.targets) / batch_size # bc we did np.mean
+        return dlogits
+        
     
     
 
 class MSELoss:
-    pass 
+    def __init__(self):
+        self.preds: Tensor | None = None
+        self.targets: Tensor | None = None
+    
+    def forward(self, preds, targets):
+        self.preds = preds
+        self.targets = targets
+        
+        loss = (targets - preds) ** 2 # we need same shapes
+        return np.mean(loss)
+    
+    def backward(self):
+        grad = 2 / self.preds.shape[0] * (self.preds - self.targets)
+        
+        return grad
 
 class LSTM:
     def __init__(self, input_dim, hidden_dim, output_dim):
@@ -41,6 +102,22 @@ class LSTM:
         self.b_y:   Tensor = np.zeros((output_dim))
         
         self.input_cache: Tensor | None = None
+        
+    def params(self):
+        return [
+            (self.W_f,   self.dW_f),
+            (self.W_i,   self.dW_i),
+            (self.W_can, self.dW_can),
+            (self.W_o,   self.dW_o),
+            
+            (self.b_f,   self.db_f),
+            (self.b_i,   self.db_i),
+            (self.b_can, self.db_can),
+            (self.b_o,   self.db_o),
+            
+            (self.W_y,   self.dW_y),
+            (self.b_y,   self.db_y)
+        ]
     
     # f_t = sigmoid(W_f * [h_t-1, x_t] + bf) # What to keep from previous cell state
     # i_t = sigmoid(W_i * [h_t-1, x_t] + bo) # What to keep from candidate cell state
@@ -140,6 +217,8 @@ class LSTM:
         dc_next = np.zeros((self.batch_size, self.hidden_dim))
         dh_next = np.zeros((self.batch_size, self.hidden_dim))
         
+        dx_ts = []
+        
         for t in range(self.seq_len - 1, -1, -1):
             x_t = self.input_cache[:, t, :]
             c_t = self.cell_states[:, t, :] # (B, hidden_dim)
@@ -169,8 +248,6 @@ class LSTM:
             
             combined_input_t = np.concatenate([h_prev_t, x_t], axis=1) # (B, hidden_dim + input_dim)
             
-            dcomb_inp_t = np.zeros((self.batch_size, self.input_dim + self.hidden_dim))
-            
             # Derivative of sigmoid(x) = sigmoid(x) * (1 - sigmoid(x))
             df_preact_t = df_t * f_t * (1 - f_t) # dL/dpreact = dL/dact * dact/dpreact
             di_preact_t = di_t * i_t * (1 - i_t)
@@ -181,11 +258,12 @@ class LSTM:
             # dL/dX = dL/dh @ W.T
             
             # The preacts are our dL/dh
+            dcomb_inp_t = np.zeros((self.batch_size, self.input_dim + self.hidden_dim))
             
-            dcomb_inp_t += df_preact_t * self.W_f.T # (B, hidden_dim) @ (hidden_dim, hidden_dim + input_dim) = (B, hidden_dim + input_dim)
-            dcomb_inp_t += di_preact_t * self.W_i.T # (B, hidden_dim) @ (hidden_dim, hidden_dim + input_dim) = (B, hidden_dim + input_dim)
-            dcomb_inp_t += dcan_preact_t * self.W_can.T # (B, hidden_dim) @ (hidden_dim, hidden_dim + input_dim) = (B, hidden_dim + input_dim)
-            dcomb_inp_t += do_preact_t * self.W_o.T # (B, hidden_dim) @ (hidden_dim, hidden_dim + input_dim) = (B, hidden_dim + input_dim)
+            dcomb_inp_t += df_preact_t @ self.W_f.T # (B, hidden_dim) @ (hidden_dim, hidden_dim + input_dim) = (B, hidden_dim + input_dim)
+            dcomb_inp_t += di_preact_t @ self.W_i.T # (B, hidden_dim) @ (hidden_dim, hidden_dim + input_dim) = (B, hidden_dim + input_dim)
+            dcomb_inp_t += dcan_preact_t @ self.W_can.T # (B, hidden_dim) @ (hidden_dim, hidden_dim + input_dim) = (B, hidden_dim + input_dim)
+            dcomb_inp_t += do_preact_t @ self.W_o.T # (B, hidden_dim) @ (hidden_dim, hidden_dim + input_dim) = (B, hidden_dim + input_dim)
             
             self.dW_f += combined_input_t.T @ df_preact_t # (hidden_dim + input_dim, B) @ (B, hidden_dim) = (hidden_dim + input_dim, hidden_dim)
             self.dW_i += combined_input_t.T @ di_preact_t # (hidden_dim + input_dim, B) @ (B, hidden_dim) = (hidden_dim + input_dim, hidden_dim)
@@ -197,27 +275,39 @@ class LSTM:
             self.db_i += np.sum(di_preact_t, axis=0) # (hidden_dim,)
             self.db_can += np.sum(dcan_preact_t, axis=0) # (hidden_dim,)
             self.db_o += np.sum(do_preact_t, axis=0) # (hidden_dim,)
+            
+            # We concatenated the combined_input as concat [h_prev, x_t] therefore h_prev is [:, h_prev:, :] and x_t is rest
+            
+            dh_prev_t = dcomb_inp_t[:, :self.hidden_dim] # (B, hidden_dim)
+            dx_t = dcomb_inp_t[:, self.hidden_dim:] # (B, input_dim)
+            
+            dx_ts.append(dx_t)
 
+            dh_next = dh_prev_t
+            dc_next = dc_prev_t
             
+            np.clip(dh_next, -1, 1, dh_next)
+            np.clip(dc_next, -1, 1, dc_next)
             
-            
-            
-            
-            
-            
-            
-            dc_next = dc_prev_t            
-            
-            
-            
-            
-            
-            
-         
-        
-        
-        
-        pass
+        return np.stack(dx_ts[::-1], axis=1) # Reverse back, (B, seq_len, input_dim)
     
-    def step(self):
-        pass
+    
+    def step(self, learning_rate: float, clip_val: float = 1.0):
+        for p, grad in self.params():
+            if clip_val != 0.0:
+                np.clip(grad, -clip_val, clip_val, grad)
+        
+        self.W_f -= learning_rate * self.dW_f
+        self.W_i -= learning_rate * self.dW_i
+        self.W_can -= learning_rate * self.dW_can
+        self.W_o -= learning_rate * self.W_o
+        
+        self.b_f -= learning_rate * self.db_f
+        self.b_i -= learning_rate * self.db_i
+        self.b_can -= learning_rate * self.db_can
+        self.b_o -= learning_rate * self.db_o
+        
+        self.W_y -= learning_rate * self.dW_y
+        self.b_y -= learning_rate * self.db_y
+        
+        
