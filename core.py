@@ -6,6 +6,26 @@ Tensor = npt.NDArray[np.float64]
 def sigmoid(x):
     return 1 / (1 + np.exp(-x))
 
+class CosineScheduler:
+    def __init__(self, max_lr, min_lr, warmup_epochs, total_epochs):
+        self.max_lr = max_lr
+        self.min_lr = min_lr
+        self.warmup_epochs = warmup_epochs
+        self.total_epochs = total_epochs
+
+    def get_lr(self, epoch):
+        if epoch <= self.warmup_epochs:
+            return self.max_lr * (epoch / self.warmup_epochs)
+        
+        else:
+            total_decay_epochs = self.total_epochs - epoch
+            current_decay_epoch = epoch - self.warmup_epochs
+
+            coeff = current_decay_epoch / total_decay_epochs
+
+            return self.min_lr + (1 / 2) * (self.max_lr - self.min_lr) * (1 + np.pi * coeff)
+
+
 class Embedding:
     def __init__(self, input_dim, embed_dim):
         self.input_cache: Tensor | None = None
@@ -81,6 +101,41 @@ class MSELoss:
         grad = 2 / self.preds.shape[0] * (self.preds - self.targets)
         
         return grad
+    
+class Adam:
+    def __init__(self, params, lr=1e-3, beta1=0.9, beta2=0.999, eps=1e-8):
+        self.params = params
+        self.lr = lr
+        self.beta1 = beta1
+        self.beta2 = beta2
+        self.eps = eps
+        self.t = 0 # Start the counter of iterations
+        
+        # Initialize the m and v for every param
+        self.m = [np.zeros_like(p) for p, g in self.params]
+        self.v = [np.zeros_like(p) for p, g in self.params]
+
+    def step(self):
+        self.t += 1
+
+        for i, (p, grad) in enumerate(self.params):
+            # Because these are EMAs we exponentialy forget the past
+            # We give more weight to recent events
+
+            self.m[i] = self.beta1 * self.m[i] + (1 - self.beta1) * grad 
+            self.v[i] = self.beta2 * self.v[i] + (1 - self.beta2) * (grad ** 2)
+
+            # The m tracks "what direction were recent grads?" And if they were jittering back
+            # and forth then they will be around 0
+            # The v tracks the magnitude of the updates - the square removes sign. Also gives more memory to the present than past
+            
+
+            # Bias correction (accounts for the fact that m, v start at 0)
+            m_hat = self.m[i] / (1 - self.beta1 ** self.t) # divided by small number when t small, by 1 when t big
+            v_hat = self.m[i] / (1 - self.beta2 ** self.t) # same story
+
+            p -= self.lr * m_hat / (np.sqrt(v_hat) + self.eps) # accounts for direction (m_hat) and intensity (v_hat)
+            # The n_hat works as momentum of direction, and v_hat as scaling if gradients are huge or tiny.
 
 class LSTM:
     def __init__(self, input_dim, hidden_dim, output_dim):
