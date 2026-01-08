@@ -5,7 +5,7 @@ def compute_spectrogram(chunk, N=512, K=257):
     # N is the index of sample in the ~32ms window
     # K is how many times the samples get rotated around the center of complex plane (the frequency we are checking)
     
-    # Output for DFT is sum(e^-2i * pi * k * n / N)
+    # Output for DFT is sum (g(t)*(e^-2i * pi * k * n / N)) = Fourier(k)
     # We sum over ns. They are samples. The n / N makes the furthest sample go up to 2pi * k on the complex circle.
 
     n = np.arange(N) # (N,)
@@ -14,5 +14,10 @@ def compute_spectrogram(chunk, N=512, K=257):
     exponents = np.outer(n, k) / N # outer product of shape (n, k)
     exponents = -exponents * 2j * np.pi # exp[n, k] = the formula in line 8 without sum
 
-    W = np.exp(exponents)
+    W = np.exp(exponents) # (N, K)
+    
+    spectr = chunk @ W
+    spectr = np.abs(spectr) / N # We take the pythagorean distance from the middle and take the mean
+
+    # chunk is N
 
