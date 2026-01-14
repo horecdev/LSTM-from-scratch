@@ -1,7 +1,7 @@
 import numpy as np
 import librosa as lb
 
-def compute_fft(chunk, N=512, K=257):
+def compute_dft(chunk, N=512, K=257):
     # Discrete Fourier Transform following the 3Blue1Brown video from youtube (I wrote the code tho)
     # N is the index of sample in the ~32ms window
     # K is how many times the samples get rotated around the center of complex plane (the frequency we are checking)
@@ -29,11 +29,11 @@ def compute_fft(chunk, N=512, K=257):
 
     W = np.exp(exponents) # (N, K)
     
-    fft = chunk @ W # (N,) @ (N, K) so we get just, K which are frequencies for current chunk
+    dft = chunk @ W # (N,) @ (N, K) so we get just, K which are frequencies for current chunk
     
-    return fft # (K,), an array of complex numbers as the approx of offset from the center of the circle.
+    return dft # (K,), an array of complex numbers as the approx of offset from the center of the circle.
 
-def compute_fft_inv(fft_complex, N=512):
+def compute_dft_inv(dft_complex, N=512):
     # Logic of inverse: We have X[k] which is all information about a wave. It is a coordinate in the complex plane. It has a phase (angle between Re and Im)
     # and it has a magnitude (just sqrt(a^2 + b^2) from a + bi)
     # When we multiply two numbers in the complex plane, their magnitudes get scaled, and the phases add up.
@@ -52,42 +52,42 @@ def compute_fft_inv(fft_complex, N=512):
     
     # Note: Why real part of coordinates are the wave, if its a circle? Because they move like a sine with f = k
     
-    # We have to multiply volume by 2, because FFT splits energy of real-world wave into two virtual waves spinning in opposite directions. 
+    # We have to multiply volume by 2, because DFT splits energy of real-world wave into two virtual waves spinning in opposite directions. 
     # Its just a fact. I cant really explain it right now. It is something with conjugates that a + bi and a - bi.
     
-    K = len(fft_complex)
+    K = len(dft_complex)
     n = np.arange(N)
     k = np.arange(K)
     exponents = 2j * np.pi * np.outer(n, k) / N # (N, K) - for each sample we have K frequencies
     W_inv = np.exp(exponents) # (N, K), our timer witohut phase
-    # fft is (K,), just K frequencies - waves info
+    # dft is (K,), just K frequencies - waves info
     # Sum(X[k] * Timer at n for wave k)
     # We multiply by 2 because of the mirroring effect. I cant explain it. The mirroring doesnt exist on 0th bin and Nyquist (257) bin
-    fft_complex[1:-1] *= 2
-    reconstruction = W_inv @ fft_complex # (N, K) @ (K,) = (N,)
+    dft_complex[1:-1] *= 2
+    reconstruction = W_inv @ dft_complex # (N, K) @ (K,) = (N,)
     # W_inv[N, :] is timer: for frequency k in sample n, where is the wave?
-    # fft is pretty much the wave. In result we have for each frequency the product of the wave and timer (where to take the value from), we sum to get reconstruction
-    # We also divide by N to adjust for huge magnitude of fft (we just added and didn't take the mean of the center of mass coordinates)
+    # dft is pretty much the wave. In result we have for each frequency the product of the wave and timer (where to take the value from), we sum to get reconstruction
+    # We also divide by N to adjust for huge magnitude of dft (we just added and didn't take the mean of the center of mass coordinates)
 
     audio_out = (np.real(reconstruction)) / N
     
     return audio_out
 
-def create_spectrogram(fft, N): # fft is (K,) of complex numpy numbers, N is chunk size the fft was calculated of.
-    fft = np.abs(fft) / N  # We take the pythagorean distance from the middle and take the mean of how many contributions to the sum there were
+def create_spectrogram(dft, N): # dft is (K,) of complex numpy numbers, N is chunk size the dft was calculated of.
+    dft = np.abs(dft) / N  # We take the pythagorean distance from the middle and take the mean of how many contributions to the sum there were
     
 
 
 
 def filter_downsample(audio, SR_orig, SR_target):
-    # The downsampling works as follows: do FFT, find which bins correspond to > 16kHz, set those to 0 and reconstruct.
+    # The downsampling works as follows: do DFT, find which bins correspond to > 16kHz, set those to 0 and reconstruct.
     # N = SR_orig * duration
     # R = SR_orig / SR_target <=> 48000Hz / 16000Hz = 3
     # Value at index i of 16kHz corresponds to i * R of original
     # Because i * R is often not an integer (R is not int) we interpolate, taking weighted averages of int(i * R) and int(i * R) + 1 (say its 2.75 we take 2 and 3)
 
     # In order to do slicing, we first do filtering. 
-    # We do FFT(N=N, K=N/2), to get all possible frequencies from 0 to N /2, capturing whole spectrum of possible frequencies from the audio.
+    # We do DFT(N=N, K=N/2), to get all possible frequencies from 0 to N /2, capturing whole spectrum of possible frequencies from the audio.
 
     # We want to cut off everything on the spectrogram higher than target_cutoff = SR_target / 2. That is 8kHz for 16kHz target, so the speech we reconstruct later has no aliasing.
     # We know that real frequency f_r = k * SR_orig / N, and k is integers so diff between them is SR_orig / N. That is our jump between bins.
@@ -98,14 +98,14 @@ def filter_downsample(audio, SR_orig, SR_target):
     K = N // 2 + 1
     R = SR_orig / SR_target
     
-    fft_complex = compute_fft(audio, N, K)
+    dft_complex = compute_dft(audio, N, K)
     
     K_cutoff = int(N / (2*R)) # So the biggest frequency is SR_target / 2
-    # fft is (K,), spectrum of frequencies in audio at SR_orig
-    fft_filtered = fft_complex.copy()
-    fft_filtered[K_cutoff:] = 0 + 0j
+    # dft is (K,), spectrum of frequencies in audio at SR_orig
+    dft_filtered = dft_complex.copy()
+    dft_filtered[K_cutoff:] = 0 + 0j
     
-    filtered_audio = compute_fft_inv(fft_filtered, N,)
+    filtered_audio = compute_dft_inv(dft_filtered, N,)
     return filtered_audio
     
 
