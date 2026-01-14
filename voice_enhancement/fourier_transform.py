@@ -1,5 +1,5 @@
 import numpy as np
-import librosa as lb
+import matplotlib.pyplot as plt
 
 def compute_dft(chunk, N=512):
     # Discrete Fourier Transform following the 3Blue1Brown video from youtube (I wrote the code tho)
@@ -34,6 +34,9 @@ def compute_dft(chunk, N=512):
     dft = chunk @ W # (N,) @ (N, K) so we get just, K which are frequencies for current chunk
     
     return dft # (K,), an array of complex numbers as the approx of offset from the center of the circle.
+
+    # Actually the sum is just half the energy, because of mirroring. We adjust for that when inverting the DFT.
+    # We have to multiply the DFT by 2 everytime we need its magnitude. It is realistically two times bigger. 
 
 def compute_dft_inv(dft_complex, N=512):
     # Logic of inverse: We have X[k] which is all information about a wave. It is a coordinate in the complex plane. It has a phase (angle between Re and Im)
@@ -98,7 +101,7 @@ def filter_downsample(audio, SR_orig, SR_target):
     K_cutoff = int(N / (2*R)) # So the biggest frequency is SR_target / 2
     
     dft_filtered = dft_complex.copy()
-    dft_filtered[K_cutoff:] = 0 + 0j
+    dft_filtered[K_cutoff:] = 0 + 0j 
     
     filtered_audio = compute_dft_inv(dft_filtered, N) # shape (N,)
     
@@ -127,7 +130,9 @@ def compute_stft(audio, N=512, hop=256):
     pad = N // 2 # Hann window zeroes out the edges that dont get compensated
     audio_padded = np.pad(audio, (pad, pad), mode='reflect') # the reflect makes the audio a smoother wave, supposedly better than padding with 0's
     orig_len = len(audio)
-    num_frames = (len(audio_padded) - N) // hop + 1 # math works out - amount of times we apply the window
+    num_frames = (len(audio_padded) - N) // hop + 1 # math works out - amount of times we apply the window, also ensures we cover the last signal.
+    # Even if the +1 overshoots, we land in padding. Say last sample ends on 1468 and whole is 1500 samples long - we calculate, and then cut out the padding in inverse.
+    # The padding that was not used (the 32 samples from 1500 - 1468) is never used.
     K = N // 2 + 1
     spectrogram = np.zeros((num_frames, K), dtype=complex)
     
@@ -142,10 +147,10 @@ def compute_stft(audio, N=512, hop=256):
         
     return spectrogram, orig_len
 
-def compute_inv_stft(spectrogram, orig_len, N=512, hop=256):
+def compute_stft_inv(spectrogram, orig_len, N=512, hop=256):
     num_frames = spectrogram.shape[0]
     
-    total_samples = (num_frames - 1) * hop + N
+    total_samples = (num_frames - 1) * hop + N # with padding
     reconstructed_audio = np.zeros(total_samples)
     window_sum = np.zeros(total_samples)
     
@@ -157,7 +162,7 @@ def compute_inv_stft(spectrogram, orig_len, N=512, hop=256):
         start = i * hop
         end = start + N
         
-        reconstructed_audio[start:end] += chunk_rebuilt  * window # We multiply again for protection. Explanation below
+        reconstructed_audio[start:end] += chunk_rebuilt * window # We multiply again for protection. Explanation below
         window_sum[start:end] += window ** 2 # we multiplied by window once in stft, the once in inv stft. We make up for that by dividing later.
         # w(n) = 0.5 - 0.5(cos(2pi*n/N-1)) = sin^2(pi*n/(N-1))
         # We do w_first(n) + w_second(n)
@@ -183,6 +188,41 @@ def compute_inv_stft(spectrogram, orig_len, N=512, hop=256):
     
     pad_amount = N // 2
     return reconstructed_audio[pad_amount : pad_amount + orig_len]
-        
-        
 
+def convert_to_db(spectrogram, N):
+    mag_norm = np.abs(spectrogram) * 2 / N
+    
+    db_spectrogram = 20 * np.log10(mag_norm + 1e-9) # we do 20 instead of 10 because we have amplitude and now power, and amplitude = power^2, so we bring 2 to the front
+    
+    return np.maximum(db_spectrogram, -100) # Humans cant hear anything below -100dB
+        
+def plot_spectrogram(spectrogram, SR, hop, N):
+    db_spec = convert_to_db(spectrogram, N) # I guess if we know the magnitude and can turn it into dB. I need more math foundation for that tho.
+    
+    # We want to plot bins on the x axis, and time on the y axis
+    db_spec = db_spec.T
+    
+    fig, ax = plt.subplots(figsize=(10, 5))
+    # We want instead of indices of samples to see the seconds
+    duration = spectrogram.shape[0] * hop / SR 
+    extent = [0, duration, 0, SR/2] # We want to define the left, right, bottom, top
+    
+    img = ax.imshow(
+        db_spec, 
+        origin='lower', # Put 0Hz at the bottom, not top
+        aspect='auto',
+        extent=extent,
+        cmap='magma',
+        vmin=-100, # black is whatever is less than -80dB.
+        vmax=0 # At most 0dB
+    )
+    
+    # Add the color scale legend
+    cbar = fig.colorbar(img, ax=ax)
+    cbar.set_label('Loudness (dB)')
+
+    ax.set_xlabel('Time (seconds)')
+    ax.set_ylabel('Frequency (Hz)')
+    ax.set_title('Spectrogram')
+
+    plt.show()
