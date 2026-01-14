@@ -75,10 +75,6 @@ def compute_dft_inv(dft_complex, N=512):
     
     return audio_out
 
-def create_spectrogram(dft, N): # dft is (K,) of complex numpy numbers, N is chunk size the dft was calculated of.
-    dft = np.abs(dft) / N  # We take the pythagorean distance from the middle and take the mean of how many contributions to the sum there were
-    
-
 def filter_downsample(audio, SR_orig, SR_target):
     # N = SR_orig * duration
     # R = SR_orig / SR_target <=> 48000Hz / 16000Hz = 3
@@ -118,8 +114,75 @@ def filter_downsample(audio, SR_orig, SR_target):
     
     return downsampled_audio
 
-
+def hann_window(N):
+    n = np.arange(N)
     
+    return 0.5 * (1 - np.cos(2 * np.pi * n / (N-1))) # exactly 0 at n = 0, and 0 at n-1, 1 in the middle
+    # When you add 2 Hann windows overlapped by 50% then they sum to a flat line.
+    # Intuition is that if end of window 1 is 0, then if you move by 50% in the second window this end will be middle, and will be 1.
+    # If you sum these up you get original.
 
+
+def compute_stft(audio, N=512, hop=256):
+    pad = N // 2 # Hann window zeroes out the edges that dont get compensated
+    audio_padded = np.pad(audio, (pad, pad), mode='reflect') # the reflect makes the audio a smoother wave, supposedly better than padding with 0's
+    orig_len = len(audio)
+    num_frames = (len(audio_padded) - N) // hop + 1 # math works out - amount of times we apply the window
+    K = N // 2 + 1
+    spectrogram = np.zeros((num_frames, K), dtype=complex)
     
+    window = hann_window(N)
+    
+    for i in range(num_frames):
+        start = i * hop 
+        end = start + N
+        chunk = audio_padded[start:end]
+        
+        spectrogram[i, :] = compute_dft(chunk * window, N)
+        
+    return spectrogram, orig_len
+
+def compute_inv_stft(spectrogram, orig_len, N=512, hop=256):
+    num_frames = spectrogram.shape[0]
+    
+    total_samples = (num_frames - 1) * hop + N
+    reconstructed_audio = np.zeros(total_samples)
+    window_sum = np.zeros(total_samples)
+    
+    window = hann_window(N)
+    
+    for i in range(num_frames):
+        chunk_rebuilt = compute_dft_inv(spectrogram[i, :], N)
+        
+        start = i * hop
+        end = start + N
+        
+        reconstructed_audio[start:end] += chunk_rebuilt  * window # We multiply again for protection. Explanation below
+        window_sum[start:end] += window ** 2 # we multiplied by window once in stft, the once in inv stft. We make up for that by dividing later.
+        # w(n) = 0.5 - 0.5(cos(2pi*n/N-1)) = sin^2(pi*n/(N-1))
+        # We do w_first(n) + w_second(n)
+        # If we move it by 50%, we get sin(x + 1/4th cycle) which is cos(x). So we get sin^2(x) + cos^2(x) = 1.0
+        
+        # If we do double: w(n)^2 we get w_first(n)^2 + w_second(n)^2 = sin^4(x) + cos^4(x) = 1 - 0.5sin^2(2x)
+        # This means the value of window is a wave. So we dont have a constant, but a value for each sample
+        
+        # Why do we multiply by window the second time? 
+        # We pass to the DFT already hanned sequence. This means fourier finds some combination of frequencies that zeros the audio out at the start and at the end.
+        # When we modify it - remove noise frequency, etc. the end and start may no longer be 0 - the perfect balance of sum of frequencies is disturbed
+        # This is why we apply the Hann window again - we smooth out the error noise at the ends. We got pretty much just the value from the middle, bc hann is tiny like 0.001
+        # We divide later by SUM not PRODUCT of windows, so approximately by the middle ~ 1 but squared. The 0.001 almost vanishes.
+        # So we do NOT go back to the original. We fitlered out the noise.
+        
+        # Why do we split Hann in the first place?
+        # Without Hann, the audio we create back would have clicks. If we modify chunks, the wave being output no longer matches the input, 
+        # and so if we glue them together they are not so smooth. This is because we modified the frequencies.
+        # If we apply Hann window it is indeed smoother and has no jumps. It modifies the audio, because if we glued raw ISTFT it would have these bumps between samples.
+        
+    window_sum[window_sum < 1e-10] = 1.0 # so we dont div by 0
+    reconstructed_audio /= window_sum
+    
+    pad_amount = N // 2
+    return reconstructed_audio[pad_amount : pad_amount + orig_len]
+        
+        
 
