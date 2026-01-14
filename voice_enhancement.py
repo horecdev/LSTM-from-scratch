@@ -1,7 +1,7 @@
 import numpy as np
 import librosa as lb
 
-def compute_dft(chunk, N=512, K=257):
+def compute_dft(chunk, N=512):
     # Discrete Fourier Transform following the 3Blue1Brown video from youtube (I wrote the code tho)
     # N is the index of sample in the ~32ms window
     # K is how many times the samples get rotated around the center of complex plane (the frequency we are checking)
@@ -20,6 +20,8 @@ def compute_dft(chunk, N=512, K=257):
     
     # Output for DFT is sum (g(t)*(e^-2i * pi * k * n / N)) = Fourier(k)
     # We sum over ns. They are samples. The n / N makes the furthest sample go up to 2pi * k on the complex circle.
+    
+    K = N // 2 + 1
 
     n = np.arange(N) # (N,)
     k = np.arange(K) # (K,)
@@ -77,10 +79,7 @@ def create_spectrogram(dft, N): # dft is (K,) of complex numpy numbers, N is chu
     dft = np.abs(dft) / N  # We take the pythagorean distance from the middle and take the mean of how many contributions to the sum there were
     
 
-
-
 def filter_downsample(audio, SR_orig, SR_target):
-    # The downsampling works as follows: do DFT, find which bins correspond to > 16kHz, set those to 0 and reconstruct.
     # N = SR_orig * duration
     # R = SR_orig / SR_target <=> 48000Hz / 16000Hz = 3
     # Value at index i of 16kHz corresponds to i * R of original
@@ -89,24 +88,37 @@ def filter_downsample(audio, SR_orig, SR_target):
     # In order to do slicing, we first do filtering. 
     # We do DFT(N=N, K=N/2), to get all possible frequencies from 0 to N /2, capturing whole spectrum of possible frequencies from the audio.
 
-    # We want to cut off everything on the spectrogram higher than target_cutoff = SR_target / 2. That is 8kHz for 16kHz target, so the speech we reconstruct later has no aliasing.
+    # We want to cut off everything on the DFT higher than target_cutoff = SR_target / 2. That is 8kHz for 16kHz target, so the speech we reconstruct later has no aliasing.
     # We know that real frequency f_r = k * SR_orig / N, and k is integers so diff between them is SR_orig / N. That is our jump between bins.
     # k_cutoff = target_cutoff / jump = (SR_target / 2) / (SR_orig / N) = SR_target / SR_orig * N / 2 = N / 2R
-    # As a result we get a spectrogram of frequencies from 0 to SR_target / 2. So for 16kHz we get from - to 16kHz, at SR = SR_original
+    # As a result we get a DFT of frequencies from 0 to SR_target / 2. So for 16kHz we get from - to 16kHz, at SR = SR_original#
     # Audio is just (N,)
     N = audio.shape[0]
-    K = N // 2 + 1
     R = SR_orig / SR_target
     
-    dft_complex = compute_dft(audio, N, K)
+    dft_complex = compute_dft(audio, N)
+    # dft is (K,), spectrum of frequencies in audio at SR_orig
     
     K_cutoff = int(N / (2*R)) # So the biggest frequency is SR_target / 2
-    # dft is (K,), spectrum of frequencies in audio at SR_orig
+    
     dft_filtered = dft_complex.copy()
     dft_filtered[K_cutoff:] = 0 + 0j
     
-    filtered_audio = compute_dft_inv(dft_filtered, N,)
-    return filtered_audio
+    filtered_audio = compute_dft_inv(dft_filtered, N) # shape (N,)
+    
+    num_samples_target = int(N / R) # N * SR_target / SR_orig
+    
+    new_indices = np.arange(num_samples_target) * R # Each sample gets mapped to sample in original, but we account for scale
+    # new_indices go from 0 to N - 1 (our new N=target_samples)
+    int_parts = new_indices.astype(int)
+    fractions = new_indices - int_parts
+    padded_audio = np.append(filtered_audio, filtered_audio[-1]) # We double least sample, but dont add it to indices
+    downsampled_audio = (1 - fractions) * padded_audio[int_parts] + fractions * padded_audio[int_parts + 1] # last sample is just the last sample if we get to N
+    # Take the fraction part of first index, then fraction of second, based on where the index is.
+    
+    return downsampled_audio
+
+
     
 
     
