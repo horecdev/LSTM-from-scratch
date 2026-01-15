@@ -67,7 +67,6 @@ def compute_dft_inv(dft_complex, N=512):
     W_inv = np.exp(exponents) # (N, K), our timer witohut phase
     # dft is (K,), just K frequencies - waves info
     # Sum(X[k] * Timer at n for wave k)
-    # We multiply by 2 because of the mirroring effect. I cant explain it. The mirroring doesnt exist on 0th bin and Nyquist (257) bin
     dft_complex[1:-1] *= 2
     reconstruction = W_inv @ dft_complex # (N, K) @ (K,) = (N,)
     # W_inv[N, :] is timer: for frequency k in sample n, where is the wave?

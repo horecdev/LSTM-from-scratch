@@ -1,194 +1,29 @@
 import numpy as np
 import numpy.typing as npt
 
+from layers import sigmoid
+
 Tensor = npt.NDArray[np.float64]
-
-class SigmoidActivation:
-    def __init__(self):
-        self.output_cache: Tensor | None = None
-        
-    def forward(self, x: Tensor) -> Tensor:
-        output = 1 / (1 + np.exp(-x))
-        self.output_cache = output
-        return output
-        
-    def backward(self, out_grad: Tensor) -> Tensor:
-        grad = self.output_cache * (1 - self.output_cache) * out_grad
-        return grad
-    
-def sigmoid(x: Tensor) -> Tensor: # For activation in LSTM
-    return 1 / (1 + np.exp(-x))
-
-class CosineScheduler:
-    def __init__(self, max_lr, min_lr, warmup_epochs, total_epochs):
-        self.max_lr = max_lr
-        self.min_lr = min_lr
-        self.warmup_epochs = warmup_epochs
-        self.total_epochs = total_epochs
-
-    def get_lr(self, epoch):
-        if epoch <= self.warmup_epochs:
-            return self.max_lr * (epoch / self.warmup_epochs)
-        
-        else:
-            total_decay_epochs = self.total_epochs - epoch
-            current_decay_epoch = epoch - self.warmup_epochs
-
-            coeff = current_decay_epoch / total_decay_epochs
-
-            return self.min_lr + (1 / 2) * (self.max_lr - self.min_lr) * (1 + np.pi * coeff)
-
-
-class Embedding:
-    def __init__(self, input_dim, embed_dim):
-        self.input_cache: Tensor | None = None
-        
-        self.input_dim = input_dim
-        self.embed_dim = embed_dim
-        
-        self.embeddings = np.random.randn(input_dim, embed_dim)
-        
-    def forward(self, x: Tensor) -> Tensor:
-        self.input_cache = x
-        
-        return self.embeddings[x]
-    
-    def backward(self, out_grad: Tensor) -> Tensor:
-        self.dembeddings = np.zeros((self.input_dim, self.embed_dim))
-        np.add.at(self.dembeddings, self.input_cache, out_grad)
-        
-        return self.dembeddings
-    
-    def step(self, learning_rate, clip_val=0.0):
-        if clip_val != 0.0:
-            np.clip(self.dembeddings, -clip_val, clip_val, self.dembeddings)
-
-        self.embeddings -= learning_rate * self.dembeddings
-        
-class SoftmaxCrossEntropy:
-    def __init__(self):
-        self.logits: Tensor | None = None
-        self.targets: Tensor | None = None
-        self.probs: Tensor | None = None
-        
-    def forward(self, logits: Tensor, targets: Tensor) -> Tensor:
-        self.logits = logits # (B, seq_len, output_dim)
-        self.targets = targets
-
-        max_logits = np.max(logits, axis=2, keepdims=True) # (B, seq_len, 1)
-        shifted_logits = logits - max_logits # (B, seq_len, output_dim) - (B, seq_len, 1)
-        
-        exp_logits = np.exp(shifted_logits)
-        exp_sum = np.sum(exp_logits, axis=2, keepdims=True) # (B, seq_len, 1)
-        probs = exp_logits / exp_sum 
-        self.probs = probs
-        
-        log_probs = np.log(probs)
-        log_probs = log_probs * targets # targets is one-hot encoded
-        batch_loss = -np.sum(log_probs, axis=-1) # (B, seq_len)
-        batch_loss = np.mean(batch_loss) # Scalar
-        
-        return batch_loss
-    
-    def backward(self) -> Tensor:
-        batch_size = self.logits.shape[0]
-        dlogits = (self.probs - self.targets) / batch_size # bc we did np.mean
-        return dlogits
-        
-    
-class MSELoss:
-    def __init__(self):
-        self.preds: Tensor | None = None
-        self.targets: Tensor | None = None
-    
-    def forward(self, preds: Tensor, targets: Tensor) -> Tensor:
-        self.preds = preds
-        self.targets = targets
-        
-        loss = (targets - preds) ** 2 # we need same shapes
-        return np.mean(loss)
-    
-    def backward(self) -> Tensor:
-        grad = 2 / self.preds.shape[0] * (self.preds - self.targets)
-        
-        return grad
-    
-class Adam:
-    def __init__(self, params, lr=1e-3, beta1=0.9, beta2=0.999, eps=1e-8):
-        self.params = params
-        self.lr = lr
-        self.beta1 = beta1
-        self.beta2 = beta2
-        self.eps = eps
-        self.t = 0 # Start the counter of iterations
-        
-        # Initialize the m and v for every param
-        self.m = [np.zeros_like(p) for p, g in self.params]
-        self.v = [np.zeros_like(p) for p, g in self.params]
-
-    def step(self):
-        self.t += 1
-
-        for i, (p, grad) in enumerate(self.params):
-            # Because these are EMAs we exponentialy forget the past
-            # We give more weight to recent events
-
-            self.m[i] = self.beta1 * self.m[i] + (1 - self.beta1) * grad 
-            self.v[i] = self.beta2 * self.v[i] + (1 - self.beta2) * (grad ** 2)
-
-            # The m tracks "what direction were recent grads?" And if they were jittering back
-            # and forth then they will be around 0
-            # The v tracks the magnitude of the updates - the square removes sign. Also gives more memory to the present than past
-            
-
-            # Bias correction (accounts for the fact that m, v start at 0)
-            m_hat = self.m[i] / (1 - self.beta1 ** self.t) # divided by small number when t small, by 1 when t big
-            v_hat = self.m[i] / (1 - self.beta2 ** self.t) # same story
-
-            p -= self.lr * m_hat / (np.sqrt(v_hat) + self.eps) # accounts for direction (m_hat) and intensity (v_hat)
-            # The n_hat works as momentum of direction, and v_hat as scaling if gradients are huge or tiny.
-
-class Linear: # Works only as the LSTM head, not normal (B, dim) projection.
-    def __init__(self, input_dim, output_dim):
-        self.input_cache: Tensor | None = None
-        
-        self.W: Tensor = np.random.randn(input_dim, output_dim)
-        self.b: Tensor = np.zeros(output_dim)
-        
-    def forward(self, x: Tensor) -> Tensor:
-        self.input_cache = x
-        return x @ self.W + self.b
-    
-    def backward(self, out_grad: Tensor) -> Tensor: # We have to flatten to calc accurately. Otherwise we will have shape errors
-        # This trick works because dot product accumulates the gradient between sampels for us. Same with db and .sum()
-        # Intuition: Math works out without issues when input is (B, dim) so we flatten it into (B * seq_len, dim)
-        B, seq_len, input_dim = self.input_cache.shape
-        _, _, output_dim = out_grad.shape
-        
-        x_flat = self.input_cache.reshape(-1, input_dim) # (B * seq_len, input_dim)
-        grad_flat = out_grad.reshape(-1, output_dim) # (B * seq_len, output_dim)
-        
-        self.dW = x_flat.T @ grad_flat # (input_dim, B * seq_len) @ (B * seq_len, output_dim) = (input_dim, output_dim)
-        self.db = np.sum(out_grad, axis=0)
-        
-        dx_flat = grad_flat @ self.W.T # (B * seq_len, output_dim) @ (output_dim, input_dim) = (B * seq_len, input_dim)
-        
-        return dx_flat.reshape(B, seq_len, input_dim) # Gradient wrt. input
-    
-    def params(self):
-        return [(self.W, self.dW), {self.b, self.db}]
 class LSTM:
     def __init__(self, input_dim, hidden_dim, output_dim):
+        # Rule of thumb for initialization:
+        # If Sigmoid / Tanh: Uniform(-limit, limit) where limit is sqrt(6 / (fan_in + fan_out))
+        # If ReLU: Normal(mean=0, std=sqrt(2/fan_in))
+        
         self.input_dim = input_dim
         self.hidden_dim = hidden_dim
         self.output_dim = output_dim
         
-        self.W_f:   Tensor = np.random.randn(input_dim + hidden_dim, hidden_dim)
-        self.W_i:   Tensor = np.random.randn(input_dim + hidden_dim, hidden_dim)
-        self.W_can: Tensor = np.random.randn(input_dim + hidden_dim, hidden_dim)
-        self.W_o:   Tensor = np.random.randn(input_dim + hidden_dim, hidden_dim)
+        fan_in = input_dim + hidden_dim
+        fan_out = hidden_dim
+        limit = np.sqrt(6 / (fan_in + fan_out))
         
-        self.b_f:   Tensor = np.zeros((hidden_dim))
+        self.W_f:   Tensor = np.random.uniform(-limit, limit, (fan_in, fan_out))
+        self.W_i:   Tensor = np.random.uniform(-limit, limit, (fan_in, fan_out))
+        self.W_can: Tensor = np.random.uniform(-limit, limit, (fan_in, fan_out))
+        self.W_o:   Tensor = np.random.uniform(-limit, limit, (fan_in, fan_out))
+        
+        self.b_f:   Tensor = np.ones((hidden_dim)) # We make the gates forget less info at the start of training
         self.b_i:   Tensor = np.zeros((hidden_dim))
         self.b_can: Tensor = np.zeros((hidden_dim))
         self.b_o :  Tensor = np.zeros((hidden_dim))
@@ -379,7 +214,7 @@ class LSTM:
         
             p -= learning_rate * grad 
         
-class BidirectionalLSTM:
+class BiLSTM:
     # Bidirectional LSTMs work based on computing two hidden states - one looking from 0 -> t, and one from t -> seq_len. We concat and make preds.
     # Having previous states makes no sense here, because we look into the future as far as possible. We have hindsight, and idk what the state would even look like going both ways.
     def __init__(self, input_dim, hidden_dim, output_dim):
