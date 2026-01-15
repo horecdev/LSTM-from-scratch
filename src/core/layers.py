@@ -51,9 +51,9 @@ class Linear: # Works only as the LSTM head, not normal (B, dim) projection.
     def __init__(self, input_dim, output_dim):
         self.input_cache: Tensor | None = None
         
-        limit = cp.sqrt(6 / (input_dim + output_dim))
+        limit = cp.sqrt(6 / (input_dim + output_dim)) 
         
-        self.W: Tensor = cp.random.uniform(-limit, limit, size=(input_dim, output_dim))
+        self.W: Tensor = cp.random.uniform(-limit, limit, size=(input_dim, output_dim)) * 5
         self.b: Tensor = cp.zeros(output_dim)
         
         self.dW: Tensor = cp.zeros_like(self.W)
@@ -72,8 +72,9 @@ class Linear: # Works only as the LSTM head, not normal (B, dim) projection.
         x_flat = self.input_cache.reshape(-1, input_dim) # (B * seq_len, input_dim)
         grad_flat = out_grad.reshape(-1, output_dim) # (B * seq_len, output_dim)
         
-        self.dW = x_flat.T @ grad_flat # (input_dim, B * seq_len) @ (B * seq_len, output_dim) = (input_dim, output_dim)
-        self.db = cp.sum(out_grad, axis=0)
+        # We do copies for Adam optimizer to watch
+        self.dW[:] = x_flat.T @ grad_flat # (input_dim, B * seq_len) @ (B * seq_len, output_dim) = (input_dim, output_dim)
+        self.db[:] = cp.sum(out_grad, axis=(0, 1))
         
         dx_flat = grad_flat @ self.W.T # (B * seq_len, output_dim) @ (output_dim, input_dim) = (B * seq_len, input_dim)
         

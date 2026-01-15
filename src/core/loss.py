@@ -47,6 +47,6 @@ class MSELoss:
         return cp.mean(loss)
     
     def backward(self) -> Tensor:
-        grad = 2 / self.preds.shape[0] * (self.preds - self.targets)
+        grad = 2 / (self.preds.shape[0] * self.preds.shape[1]) * (self.preds - self.targets)
         
         return grad

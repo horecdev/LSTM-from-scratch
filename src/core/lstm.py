@@ -132,6 +132,17 @@ class LSTM:
         # dhidden_states is grad wrt. hidden_states, shape (B, seq_len, hidden_dim)
         # Returns grad wrt. inputs
         
+        # Bugfix: I forgot to zero grad, thats the most noob mistake you can make
+        self.dW_f.fill(0)
+        self.dW_i.fill(0)
+        self.dW_can.fill(0)
+        self.dW_o.fill(0)
+        
+        self.db_f.fill(0)
+        self.db_i.fill(0)
+        self.db_can.fill(0)
+        self.db_o.fill(0)
+        
         dc_next = cp.zeros((self.batch_size, self.hidden_dim))
         dh_next = cp.zeros((self.batch_size, self.hidden_dim))
         

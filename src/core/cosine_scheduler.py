@@ -1,4 +1,5 @@
 import cupy as cp
+import numpy as np
 
 class CosineScheduler:
     def __init__(self, max_lr, min_lr, warmup_epochs, total_epochs):
@@ -17,4 +18,4 @@ class CosineScheduler:
 
             coeff = current_decay_epoch / total_decay_epochs
 
-            return self.min_lr + (1 / 2) * (self.max_lr - self.min_lr) * (1 + cp.pi * coeff)
+            return self.min_lr + (1 / 2) * (self.max_lr - self.min_lr) * (1 + np.cos(cp.pi * coeff))
