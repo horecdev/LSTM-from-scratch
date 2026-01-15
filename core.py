@@ -7,16 +7,16 @@ class SigmoidActivation:
     def __init__(self):
         self.output_cache: Tensor | None = None
         
-    def forward(self, x):
+    def forward(self, x: Tensor) -> Tensor:
         output = 1 / (1 + np.exp(-x))
         self.output_cache = output
         return output
         
-    def backward(self, out_grad):
+    def backward(self, out_grad: Tensor) -> Tensor:
         grad = self.output_cache * (1 - self.output_cache) * out_grad
         return grad
     
-def sigmoid(x): # For activation in LSTM
+def sigmoid(x: Tensor) -> Tensor: # For activation in LSTM
     return 1 / (1 + np.exp(-x))
 
 class CosineScheduler:
@@ -48,12 +48,12 @@ class Embedding:
         
         self.embeddings = np.random.randn(input_dim, embed_dim)
         
-    def forward(self, x):
+    def forward(self, x: Tensor) -> Tensor:
         self.input_cache = x
         
         return self.embeddings[x]
     
-    def backward(self, out_grad):
+    def backward(self, out_grad: Tensor) -> Tensor:
         self.dembeddings = np.zeros((self.input_dim, self.embed_dim))
         np.add.at(self.dembeddings, self.input_cache, out_grad)
         
@@ -90,7 +90,7 @@ class SoftmaxCrossEntropy:
         
         return batch_loss
     
-    def backward(self):
+    def backward(self) -> Tensor:
         batch_size = self.logits.shape[0]
         dlogits = (self.probs - self.targets) / batch_size # bc we did np.mean
         return dlogits
@@ -101,14 +101,14 @@ class MSELoss:
         self.preds: Tensor | None = None
         self.targets: Tensor | None = None
     
-    def forward(self, preds, targets):
+    def forward(self, preds: Tensor, targets: Tensor) -> Tensor:
         self.preds = preds
         self.targets = targets
         
         loss = (targets - preds) ** 2 # we need same shapes
         return np.mean(loss)
     
-    def backward(self):
+    def backward(self) -> Tensor:
         grad = 2 / self.preds.shape[0] * (self.preds - self.targets)
         
         return grad
@@ -148,19 +148,20 @@ class Adam:
             p -= self.lr * m_hat / (np.sqrt(v_hat) + self.eps) # accounts for direction (m_hat) and intensity (v_hat)
             # The n_hat works as momentum of direction, and v_hat as scaling if gradients are huge or tiny.
 
-class Linear: # Works only as the LSTM head, not normal (B, dim) proejction.
+class Linear: # Works only as the LSTM head, not normal (B, dim) projection.
     def __init__(self, input_dim, output_dim):
         self.input_cache: Tensor | None = None
         
         self.W: Tensor = np.random.randn(input_dim, output_dim)
         self.b: Tensor = np.zeros(output_dim)
         
-    def forward(self, x):
+    def forward(self, x: Tensor) -> Tensor:
         self.input_cache = x
         return x @ self.W + self.b
     
-    def backward(self, out_grad): # We have to flatten to calc accurately. Otherwise we will have shape errors
+    def backward(self, out_grad: Tensor) -> Tensor: # We have to flatten to calc accurately. Otherwise we will have shape errors
         # This trick works because dot product accumulates the gradient between sampels for us. Same with db and .sum()
+        # Intuition: Math works out without issues when input is (B, dim) so we flatten it into (B * seq_len, dim)
         B, seq_len, input_dim = self.input_cache.shape
         _, _, output_dim = out_grad.shape
         
@@ -386,37 +387,29 @@ class BidirectionalLSTM:
         self.backward_layer = LSTM(input_dim, hidden_dim, output_dim)
         self.hidden_dim = hidden_dim
         
-    def forward(self, x, init_states_f=None, init_states_b=None):
-        h_f, _, _ = self.forward_layer.forward(x, init_states_f) # We dont need previous states, because we look into the future with bidirections.
+    def forward(self, x: Tensor, init_f_states=None, init_b_states=None) -> Tensor:
+        h_f = self.forward_layer.forward(x, init_f_states)
         
-        x_rev = np.flip(x, axis=1) # So the backward LSTM goes from the back
-        h_b_rev, _, _ = self.backward_layer.forward(x_rev, init_states_b)
+        x_rev = np.flip(x, axis=1) # flip along t axis
+        h_b, _, _ = self.backward_layer.forward(x_rev, init_b_states) # Now first hidden state attends to last x, etc.
         
-        h_b = np.flip(h_b_rev) # So that at t = 0 we look from 0 to the end
+        h_b_rev, _, _ = np.flip(h_b, axis=1) # now first elements is last in backward lstm, this means attends from seq_len to 0
         
-        self.combined_h = np.concatenate([h_f, h_b], axis=2) # (B, seq_len, hidden_dim * 2)
+        combined_h = np.concatenate([h_f, h_b_rev], axis=2) # (B, seq_len, hidden_dim * 2)
         
-        return self.combined_h
+        return combined_h
+    
+    def backward(self, dhidden_states):
+        dh_f = dhidden_states[:, :, :self.hidden_dim]
+        dh_b_rev = dhidden_states[:, :, self.hidden_dim:]
         
-    def backward(self, d_combined_h):
-        df = d_combined_h[:, :, :self.hidden_dim]
-        db = d_combined_h[:, :, self.hidden_dim:]
+        dh_b = np.flip(dh_b_rev, axis=1)
         
-        dx_f = self.forward_layer.backward(df)
+        dx_f = self.forward_layer.backward(dh_f)
+        dx_b_rev = self.backward_layer.backward(dh_b)
+        dx_b = np.flip(dx_b_rev, axis=1)
         
-        # At t = 0 the db is grad wrt. last hidden state of backward_lstm. This means it has to become the last -> reverse.
-        
-        dx_b_rev = self.backward_layer.backward(np.flip(db, axis=1))
-        dx_b = np.flip(dx_b_rev, axis=1) # Reverse back the inputs
-        
-        return dx_f + dx_b # same shapes
+        return dx_f + dx_b # grad wrt. inputs
     
     def params(self):
         return self.forward_layer.params() + self.backward_layer.params()
-    
-    def step(self, learning_rate: float, clip_val: float = 1.0):
-        for p, grad in self.params():
-            if clip_val != 0.0:
-                np.clip(grad, -clip_val, clip_val, grad)
-        
-            p -= learning_rate * grad 
