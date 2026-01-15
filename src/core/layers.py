@@ -51,7 +51,9 @@ class Linear: # Works only as the LSTM head, not normal (B, dim) projection.
     def __init__(self, input_dim, output_dim):
         self.input_cache: Tensor | None = None
         
-        self.W: Tensor = cp.random.randn(input_dim, output_dim)
+        limit = cp.sqrt(6 / (input_dim + output_dim))
+        
+        self.W: Tensor = cp.random.uniform(-limit, limit, size=(input_dim, output_dim))
         self.b: Tensor = cp.zeros(output_dim)
         
         self.dW: Tensor = cp.zeros_like(self.W)

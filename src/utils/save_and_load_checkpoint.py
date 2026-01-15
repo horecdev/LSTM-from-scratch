@@ -3,7 +3,7 @@ import cupy as cp
 def save_checkpoint(file_path, layers_dict, optimizer, epoch, best_loss):
     data_to_save = {}
     
-    for layer_name, layer_obj in layers_dict:
+    for layer_name, layer_obj in layers_dict.items():
         for i, (p, _) in enumerate(layer_obj.params()):
             data_to_save[f"{layer_name}_{i}"] = p
             
@@ -19,10 +19,12 @@ def save_checkpoint(file_path, layers_dict, optimizer, epoch, best_loss):
     
     cp.savez(file_path, **data_to_save)
     
+    print(f"Saved checkpoint to: {file_path}")
+    
 def load_checkpoint(file_path, layers_dict, optimizer):
     data = cp.load(file_path)
     
-    for layer_name, layer_obj in layers_dict:
+    for layer_name, layer_obj in layers_dict.items():
         for i, (p, _) in enumerate(layer_obj.params()):
             cp.copyto(p, data[f"{layer_name}_{i}"])
     

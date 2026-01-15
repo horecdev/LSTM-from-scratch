@@ -4,6 +4,7 @@ import numpy.typing as npt
 from src.core.layers import sigmoid
 
 Tensor = npt.NDArray[cp.float64]
+
 class LSTM:
     def __init__(self, input_dim, hidden_dim, output_dim):
         # Rule of thumb for initialization:

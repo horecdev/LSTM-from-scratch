@@ -148,7 +148,7 @@ def compute_stft(audio, N=512, hop=256):
         
         spectrogram[i, :] = compute_dft(chunk * window, N)
         
-    return spectrogram, orig_len
+    return spectrogram, orig_len # spectro is (num_frames, N)
 
 def compute_stft_vectorized(audio, N=512, hop=256):
     audio = cp.asarray(audio)
@@ -220,10 +220,11 @@ def convert_to_db(spectrogram, N, is_raw_magnitude):
     mag_norm = mag * 2 / N
     
     db_spectrogram = 20 * cp.log10(mag_norm + 1e-9) # we do 20 instead of 10 because we have amplitude and now power, and amplitude = power^2, so we bring 2 to the front
+    # Our reference (bc the inside of log10 is mag/reference) is 1. This means if mag > 1 then spectro val will be > 0, but for now 1 is 0, 0.1 is -20, etc. It is unlikely that magnitude will go past 1 for some reason.
     
     return cp.maximum(db_spectrogram, -100) # Humans cant hear anything below -100dB
         
-def plot_spectrogram(spectrogram, SR, hop, N, title, is_raw_magnitude=False):
+def plot_spectrogram(spectrogram, SR, N, hop, title, is_raw_magnitude=False):
 
     db_spec = convert_to_db(spectrogram, N, is_raw_magnitude) # I guess if we know the magnitude and can turn it into dB. I need more math foundation for that tho.
 

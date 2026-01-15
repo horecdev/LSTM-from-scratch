@@ -6,7 +6,7 @@ def save_model(file_path, layer_dict):
     
     weights_to_save = {}
     
-    for layer_name, layer_obj in layer_dict:
+    for layer_name, layer_obj in layer_dict.items():
         params = layer_obj.params()
         
         
@@ -21,7 +21,7 @@ def load_model(file_path, layer_dict):
     # The layer dict can be any amount of models that have params() func
     data = cp.load(file_path)
     
-    for layer_name, layer_obj in layer_dict:
+    for layer_name, layer_obj in layer_dict.items():
         params = layer_obj.params()
         
         for i, (p, _) in enumerate(params):
