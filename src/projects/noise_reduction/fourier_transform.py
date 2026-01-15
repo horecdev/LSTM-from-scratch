@@ -1,5 +1,8 @@
+import cupy as cp
 import numpy as np
 import matplotlib.pyplot as plt
+
+from cupy.lib.stride_tricks import sliding_window_view
 
 def compute_dft(chunk, N=512):
     # Discrete Fourier Transform following the 3Blue1Brown video from youtube (I wrote the code tho)
@@ -23,13 +26,13 @@ def compute_dft(chunk, N=512):
     
     K = N // 2 + 1
 
-    n = np.arange(N) # (N,)
-    k = np.arange(K) # (K,)
+    n = cp.arange(N) # (N,)
+    k = cp.arange(K) # (K,)
 
-    exponents = np.outer(n, k) / N # outer product of shape (n, k)
-    exponents = -exponents * 2j * np.pi # exp[n, k] = the formula in line 8 without sum - sample n for k'th frequency
+    exponents = cp.outer(n, k) / N # outer product of shape (n, k)
+    exponents = -exponents * 2j * cp.pi # exp[n, k] = the formula in line 8 without sum - sample n for k'th frequency
 
-    W = np.exp(exponents) # (N, K)
+    W = cp.exp(exponents) # (N, K)
     
     dft = chunk @ W # (N,) @ (N, K) so we get just, K which are frequencies for current chunk
     
@@ -61,19 +64,20 @@ def compute_dft_inv(dft_complex, N=512):
     # Its just a fact. I cant really explain it right now. It is something with conjugates that a + bi and a - bi.
     
     K = len(dft_complex)
-    n = np.arange(N)
-    k = np.arange(K)
-    exponents = 2j * np.pi * np.outer(n, k) / N # (N, K) - for each sample we have K frequencies
-    W_inv = np.exp(exponents) # (N, K), our timer witohut phase
+    n = cp.arange(N)
+    k = cp.arange(K)
+    exponents = 2j * cp.pi * cp.outer(n, k) / N # (N, K) - for each sample we have K frequencies
+    W_inv = cp.exp(exponents) # (N, K), our timer witohut phase
     # dft is (K,), just K frequencies - waves info
     # Sum(X[k] * Timer at n for wave k)
-    dft_complex[1:-1] *= 2
-    reconstruction = W_inv @ dft_complex # (N, K) @ (K,) = (N,)
+    dft_work = dft_complex.copy()
+    dft_work[1:-1] *= 2
+    reconstruction = W_inv @ dft_work # (N, K) @ (K,) = (N,)
     # W_inv[N, :] is timer: for frequency k in sample n, where is the wave?
     # dft is pretty much the wave. In result we have for each frequency the product of the wave and timer (where to take the value from), we sum to get reconstruction
     # We also divide by N to adjust for huge magnitude of dft (we just added and didn't take the mean of the center of mass coordinates)
 
-    audio_out = (np.real(reconstruction)) / N
+    audio_out = (cp.real(reconstruction)) / N
     
     return audio_out
 
@@ -106,20 +110,20 @@ def filter_downsample(audio, SR_orig, SR_target):
     
     num_samples_target = int(N / R) # N * SR_target / SR_orig
     
-    new_indices = np.arange(num_samples_target) * R # Each sample gets mapped to sample in original, but we account for scale
+    new_indices = cp.arange(num_samples_target) * R # Each sample gets mapped to sample in original, but we account for scale
     # new_indices go from 0 to N - 1 (our new N=target_samples)
     int_parts = new_indices.astype(int)
     fractions = new_indices - int_parts
-    padded_audio = np.append(filtered_audio, filtered_audio[-1]) # We double least sample, but dont add it to indices
+    padded_audio = cp.append(filtered_audio, filtered_audio[-1]) # We double least sample, but dont add it to indices
     downsampled_audio = (1 - fractions) * padded_audio[int_parts] + fractions * padded_audio[int_parts + 1] # last sample is just the last sample if we get to N
     # Take the fraction part of first index, then fraction of second, based on where the index is.
     
     return downsampled_audio
 
 def hann_window(N):
-    n = np.arange(N)
+    n = cp.arange(N)
     
-    return 0.5 * (1 - np.cos(2 * np.pi * n / (N-1))) # exactly 0 at n = 0, and 0 at n-1, 1 in the middle
+    return 0.5 * (1 - cp.cos(2 * cp.pi * n / (N-1))) # exactly 0 at n = 0, and 0 at n-1, 1 in the middle
     # When you add 2 Hann windows overlapped by 50% then they sum to a flat line.
     # Intuition is that if end of window 1 is 0, then if you move by 50% in the second window this end will be middle, and will be 1.
     # If you sum these up you get original.
@@ -127,31 +131,50 @@ def hann_window(N):
 
 def compute_stft(audio, N=512, hop=256):
     pad = N // 2 # Hann window zeroes out the edges that dont get compensated
-    audio_padded = np.pad(audio, (pad, pad), mode='reflect') # the reflect makes the audio a smoother wave, supposedly better than padding with 0's
+    audio_padded = cp.pad(audio, (pad, pad), mode='reflect') # the reflect makes the audio a smoother wave, supposedly better than padding with 0's
     orig_len = len(audio)
     num_frames = (len(audio_padded) - N) // hop + 1 # math works out - amount of times we apply the window, also ensures we cover the last signal.
     # Even if the +1 overshoots, we land in padding. Say last sample ends on 1468 and whole is 1500 samples long - we calculate, and then cut out the padding in inverse.
     # The padding that was not used (the 32 samples from 1500 - 1468) is never used.
     K = N // 2 + 1
-    spectrogram = np.zeros((num_frames, K), dtype=complex)
+    spectrogram = cp.zeros((num_frames, K), dtype=complex)
     
     window = hann_window(N)
     
     for i in range(num_frames):
         start = i * hop 
         end = start + N
-        chunk = audio_padded[start:end]
+        chunk = audio_padded[start:end] # num_chunks = num_frames <=> chunk = frame
         
         spectrogram[i, :] = compute_dft(chunk * window, N)
         
     return spectrogram, orig_len
 
+def compute_stft_vectorized(audio, N=512, hop=256):
+    audio = cp.asarray(audio)
+    orig_len = len(audio)
+    pad = N // 2
+    audio_padded = cp.pad(audio, (pad, pad), mode='reflect')
+    
+    frames = sliding_window_view(audio_padded, N)[::hop] # creates a 2D matrix of shape (num_frames, N)
+    # Pretty much just slices it all for us, using this simple line. Also is way faster. We could go over num_frames with for loop, but we do one big matmul.
+    
+    window = hann_window(N)
+    windowed_frames = frames * window # Broadcasts window of shape (N,) over (num_frames, N)
+    
+    spectrogram = compute_dft(windowed_frames, N) # DFT for each chunk does the same thing -> gets frequencies. 
+    # This means we can just put in a matrix (bc it uses matmul @) and it will apply the operation to each frame. 
+    # The shapes are a bit diff in what we pass to DFT, because they have (num_frames, N) not (N,). It still works.
+    
+    return spectrogram, orig_len
+    
+
 def compute_stft_inv(spectrogram, orig_len, N=512, hop=256):
     num_frames = spectrogram.shape[0]
     
     total_samples = (num_frames - 1) * hop + N # with padding
-    reconstructed_audio = np.zeros(total_samples)
-    window_sum = np.zeros(total_samples)
+    reconstructed_audio = cp.zeros(total_samples)
+    window_sum = cp.zeros(total_samples)
     
     window = hann_window(N)
     
@@ -188,18 +211,24 @@ def compute_stft_inv(spectrogram, orig_len, N=512, hop=256):
     pad_amount = N // 2
     return reconstructed_audio[pad_amount : pad_amount + orig_len]
 
-def convert_to_db(spectrogram, N):
-    mag_norm = np.abs(spectrogram) * 2 / N
-    
-    db_spectrogram = 20 * np.log10(mag_norm + 1e-9) # we do 20 instead of 10 because we have amplitude and now power, and amplitude = power^2, so we bring 2 to the front
-    
-    return np.maximum(db_spectrogram, -100) # Humans cant hear anything below -100dB
+def convert_to_db(spectrogram, N, is_raw_magnitude):
+    if not is_raw_magnitude:
+        mag = cp.abs(spectrogram)
+    else:
+        mag = spectrogram
         
-def plot_spectrogram(spectrogram, SR, hop, N):
-    db_spec = convert_to_db(spectrogram, N) # I guess if we know the magnitude and can turn it into dB. I need more math foundation for that tho.
+    mag_norm = mag * 2 / N
     
+    db_spectrogram = 20 * cp.log10(mag_norm + 1e-9) # we do 20 instead of 10 because we have amplitude and now power, and amplitude = power^2, so we bring 2 to the front
+    
+    return cp.maximum(db_spectrogram, -100) # Humans cant hear anything below -100dB
+        
+def plot_spectrogram(spectrogram, SR, hop, N, title, is_raw_magnitude=False):
+
+    db_spec = convert_to_db(spectrogram, N, is_raw_magnitude) # I guess if we know the magnitude and can turn it into dB. I need more math foundation for that tho.
+
     # We want to plot bins on the x axis, and time on the y axis
-    db_spec = db_spec.T
+    db_spec = db_spec.get().T
     
     fig, ax = plt.subplots(figsize=(10, 5))
     # We want instead of indices of samples to see the seconds
@@ -222,6 +251,6 @@ def plot_spectrogram(spectrogram, SR, hop, N):
 
     ax.set_xlabel('Time (seconds)')
     ax.set_ylabel('Frequency (Hz)')
-    ax.set_title('Spectrogram')
+    ax.set_title(title)
 
     plt.show()

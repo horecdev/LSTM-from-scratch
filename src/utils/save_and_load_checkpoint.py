@@ -1,6 +1,6 @@
-import numpy as np
+import cupy as cp
 
-def save_checkpoint(file_path, layers_dict, optimizer):
+def save_checkpoint(file_path, layers_dict, optimizer, epoch, best_loss):
     data_to_save = {}
     
     for layer_name, layer_obj in layers_dict:
@@ -13,16 +13,18 @@ def save_checkpoint(file_path, layers_dict, optimizer):
         data_to_save[f"adam_m_{i}"] = m_tensor
     for i, v_tensor in enumerate(adam_state['v']):
         data_to_save[f"adam_m_{i}"] = v_tensor
-    data_to_save["adam_t"] = np.array(adam_state['t']) # Save as 1 elem array
+    data_to_save["adam_t"] = cp.array(adam_state['t']) # Save as 1 elem array
+    data_to_save["epoch"] = cp.array(epoch)
+    data_to_save["best_loss"] = cp.array(best_loss)
     
-    np.savez(file_path, data_to_save)
+    cp.savez(file_path, **data_to_save)
     
 def load_checkpoint(file_path, layers_dict, optimizer):
-    data = np.load(file_path)
+    data = cp.load(file_path)
     
     for layer_name, layer_obj in layers_dict:
         for i, (p, _) in enumerate(layer_obj.params()):
-            np.copyto(p, data[f"{layer_name}_{i}"])
+            cp.copyto(p, data[f"{layer_name}_{i}"])
     
     m_list = []
     v_list = []            
@@ -38,7 +40,10 @@ def load_checkpoint(file_path, layers_dict, optimizer):
         "t" : int(data['adam_t'][0]) # get the first elem
     })
     
-    print(f"Loaded checkpoint from {file_path}.")
+    start_epoch = int(data["epoch"][0])
+    best_loss = int(data['best_loss'][0])
+    print(f"Loaded checkpoint from {file_path} at epoch {start_epoch}")
+    return start_epoch, best_loss
     
         
         

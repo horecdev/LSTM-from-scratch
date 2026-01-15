@@ -1,5 +1,5 @@
 
-import numpy as np
+import cupy as cp
 
 class Adam:
     def __init__(self, params, lr=1e-3, beta1=0.9, beta2=0.999, eps=1e-8):
@@ -11,8 +11,8 @@ class Adam:
         self.t = 0 # Start the counter of iterations
         
         # Initialize the m and v for every param
-        self.m = [np.zeros_like(p) for p, g in self.params]
-        self.v = [np.zeros_like(p) for p, g in self.params]
+        self.m = [cp.zeros_like(p) for p, g in self.params]
+        self.v = [cp.zeros_like(p) for p, g in self.params]
 
     def step(self, lr=None):
         self.t += 1
@@ -34,7 +34,7 @@ class Adam:
             m_hat = self.m[i] / (1 - self.beta1 ** self.t) # divided by small number when t small, by 1 when t big
             v_hat = self.v[i] / (1 - self.beta2 ** self.t) # same story
 
-            p -= self.current_lr * m_hat / (np.sqrt(v_hat) + self.eps) # accounts for direction (m_hat) and intensity (v_hat)
+            p -= current_lr * m_hat / (cp.sqrt(v_hat) + self.eps) # accounts for direction (m_hat) and intensity (v_hat)
             # The n_hat works as momentum of direction, and v_hat as scaling if gradients are huge or tiny.
             
     def get_state(self):

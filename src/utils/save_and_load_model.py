@@ -1,4 +1,4 @@
-import numpy as np
+import cupy as cp
 
 def save_model(file_path, layer_dict):
     # We want to go over each layer and save its weights
@@ -13,13 +13,13 @@ def save_model(file_path, layer_dict):
         for i, (p, _) in enumerate(params):
             weights_to_save[f"{layer_name}_{i}"] = p
             
-        np.savez(file_path, **weights_to_save)
+        cp.savez(file_path, **weights_to_save)
         print(f"Model saved to {file_path}")
         
 def load_model(file_path, layer_dict):
     # We load back the params in-place to variables from params
     # The layer dict can be any amount of models that have params() func
-    data = np.load(file_path)
+    data = cp.load(file_path)
     
     for layer_name, layer_obj in layer_dict:
         params = layer_obj.params()
@@ -28,7 +28,7 @@ def load_model(file_path, layer_dict):
             key = f"{layer_name}_{i}"
             
             if key in data:
-                np.copyto(p, data[key])
+                cp.copyto(p, data[key])
             else:
                 print(f"Warning: Layer {key} not found in saved file.")
                 
