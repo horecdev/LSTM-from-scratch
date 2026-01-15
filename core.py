@@ -376,15 +376,7 @@ class LSTM:
             if clip_val != 0.0:
                 np.clip(grad, -clip_val, clip_val, grad)
         
-        self.W_f -= learning_rate * self.dW_f
-        self.W_i -= learning_rate * self.dW_i
-        self.W_can -= learning_rate * self.dW_can
-        self.W_o -= learning_rate * self.W_o
-        
-        self.b_f -= learning_rate * self.db_f
-        self.b_i -= learning_rate * self.db_i
-        self.b_can -= learning_rate * self.db_can
-        self.b_o -= learning_rate * self.db_o
+            p -= learning_rate * grad 
         
 class BidirectionalLSTM:
     # Bidirectional LSTMs work based on computing two hidden states - one looking from 0 -> t, and one from t -> seq_len. We concat and make preds.
@@ -422,5 +414,9 @@ class BidirectionalLSTM:
     def params(self):
         return self.forward_layer.params() + self.backward_layer.params()
     
-    
+    def step(self, learning_rate: float, clip_val: float = 1.0):
+        for p, grad in self.params():
+            if clip_val != 0.0:
+                np.clip(grad, -clip_val, clip_val, grad)
         
+            p -= learning_rate * grad 
