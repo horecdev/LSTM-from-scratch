@@ -1,7 +1,7 @@
 import numpy as np
 import numpy.typing as npt
 
-from layers import sigmoid
+from src.core.layers import sigmoid
 
 Tensor = npt.NDArray[np.float64]
 class LSTM:
