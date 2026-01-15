@@ -3,7 +3,20 @@ import numpy.typing as npt
 
 Tensor = npt.NDArray[np.float64]
 
-def sigmoid(x):
+class SigmoidActivation:
+    def __init__(self):
+        self.output_cache: Tensor | None = None
+        
+    def forward(self, x):
+        output = 1 / (1 + np.exp(-x))
+        self.output_cache = output
+        return output
+        
+    def backward(self, out_grad):
+        grad = self.output_cache * (1 - self.output_cache) * out_grad
+        return grad
+    
+def sigmoid(x): # For activation in LSTM
     return 1 / (1 + np.exp(-x))
 
 class CosineScheduler:
@@ -83,8 +96,6 @@ class SoftmaxCrossEntropy:
         return dlogits
         
     
-    
-
 class MSELoss:
     def __init__(self):
         self.preds: Tensor | None = None
@@ -137,6 +148,34 @@ class Adam:
             p -= self.lr * m_hat / (np.sqrt(v_hat) + self.eps) # accounts for direction (m_hat) and intensity (v_hat)
             # The n_hat works as momentum of direction, and v_hat as scaling if gradients are huge or tiny.
 
+class Linear: # Works only as the LSTM head, not normal (B, dim) proejction.
+    def __init__(self, input_dim, output_dim):
+        self.input_cache: Tensor | None = None
+        
+        self.W: Tensor = np.random.randn(input_dim, output_dim)
+        self.b: Tensor = np.zeros(output_dim)
+        
+    def forward(self, x):
+        self.input_cache = x
+        return x @ self.W + self.b
+    
+    def backward(self, out_grad): # We have to flatten to calc accurately. Otherwise we will have shape errors
+        # This trick works because dot product accumulates the gradient between sampels for us. Same with db and .sum()
+        B, seq_len, input_dim = self.input_cache.shape
+        _, _, output_dim = out_grad.shape
+        
+        x_flat = self.input_cache.reshape(-1, input_dim) # (B * seq_len, input_dim)
+        grad_flat = out_grad.reshape(-1, output_dim) # (B * seq_len, output_dim)
+        
+        self.dW = x_flat.T @ grad_flat # (input_dim, B * seq_len) @ (B * seq_len, output_dim) = (input_dim, output_dim)
+        self.db = np.sum(out_grad, axis=0)
+        
+        dx_flat = grad_flat @ self.W.T # (B * seq_len, output_dim) @ (output_dim, input_dim) = (B * seq_len, input_dim)
+        
+        return dx_flat.reshape(B, seq_len, input_dim) # Gradient wrt. input
+    
+    def params(self):
+        return [(self.W, self.dW), {self.b, self.db}]
 class LSTM:
     def __init__(self, input_dim, hidden_dim, output_dim):
         self.input_dim = input_dim
@@ -153,9 +192,6 @@ class LSTM:
         self.b_can: Tensor = np.zeros((hidden_dim))
         self.b_o :  Tensor = np.zeros((hidden_dim))
         
-        self.W_y:   Tensor = np.random.randn(hidden_dim, output_dim)
-        self.b_y:   Tensor = np.zeros((output_dim))
-        
         self.input_cache: Tensor | None = None
         
     def params(self):
@@ -168,10 +204,7 @@ class LSTM:
             (self.b_f,   self.db_f),
             (self.b_i,   self.db_i),
             (self.b_can, self.db_can),
-            (self.b_o,   self.db_o),
-            
-            (self.W_y,   self.dW_y),
-            (self.b_y,   self.db_y)
+            (self.b_o,   self.db_o)
         ]
     
     # f_t = sigmoid(W_f * [h_t-1, x_t] + bf) # What to keep from previous cell state
@@ -244,13 +277,11 @@ class LSTM:
         self.can_states = np.stack(self.can_states, axis=1)
         self.o_gates = np.stack(self.o_gates, axis=1)
         
-        output = self.hidden_states @ self.W_y + self.b_y # (B, seq_len, hidden_dim) @ (hidden_dim, output_dim) + (output_dim,)
-        # We make predictions out of data that was exposed from cell states (h's)
-        
-        return output, c_t, h_t # Return predictions + last states
+        return self.hidden_states, c_t, h_t # Return hidden_states to later make preds out of them. We isolate W_y into some totally different part.
         
     
-    def backward(self, dlogits: Tensor) -> Tensor:
+    def backward(self, dhidden_states: Tensor) -> Tensor:
+        # dhidden_states is grad wrt. hidden_states, shape (B, seq_len, hidden_dim)
         # Returns grad wrt. inputs
         self.dW_f = np.zeros((self.input_dim + self.hidden_dim, self.hidden_dim))
         self.dW_i = np.zeros((self.input_dim + self.hidden_dim, self.hidden_dim))
@@ -261,13 +292,6 @@ class LSTM:
         self.db_i = np.zeros((self.hidden_dim))
         self.db_can = np.zeros((self.hidden_dim))
         self.db_o = np.zeros((self.hidden_dim))
-        
-        dhidden_states = dlogits @ self.W_y.T # (B, seq_len, output_dim) @ (output_dim, hidden_dim)
-        flat_dlogits = dlogits.reshape(-1, self.output_dim) # (B * seq_len, output_dim)
-        flat_hidden = self.hidden_states.reshape(-1, self.hidden_dim) # (B * seq_len, hidden_dim)
-        
-        self.dW_y = flat_hidden.T @ flat_dlogits # (hidden_dim, B * seq_len) @ (B * seq_len, output_dim)
-        self.db_y = np.sum(dlogits, axis=(0, 1))
         
         dc_next = np.zeros((self.batch_size, self.hidden_dim))
         dh_next = np.zeros((self.batch_size, self.hidden_dim))
@@ -362,7 +386,41 @@ class LSTM:
         self.b_can -= learning_rate * self.db_can
         self.b_o -= learning_rate * self.db_o
         
-        self.W_y -= learning_rate * self.dW_y
-        self.b_y -= learning_rate * self.db_y
+class BidirectionalLSTM:
+    # Bidirectional LSTMs work based on computing two hidden states - one looking from 0 -> t, and one from t -> seq_len. We concat and make preds.
+    # Having previous states makes no sense here, because we look into the future as far as possible. We have hindsight, and idk what the state would even look like going both ways.
+    def __init__(self, input_dim, hidden_dim, output_dim):
+        self.forward_layer = LSTM(input_dim, hidden_dim, output_dim)
+        self.backward_layer = LSTM(input_dim, hidden_dim, output_dim)
+        self.hidden_dim = hidden_dim
         
+    def forward(self, x, init_states_f=None, init_states_b=None):
+        h_f, _, _ = self.forward_layer.forward(x, init_states_f) # We dont need previous states, because we look into the future with bidirections.
+        
+        x_rev = np.flip(x, axis=1) # So the backward LSTM goes from the back
+        h_b_rev, _, _ = self.backward_layer.forward(x_rev, init_states_b)
+        
+        h_b = np.flip(h_b_rev) # So that at t = 0 we look from 0 to the end
+        
+        self.combined_h = np.concatenate([h_f, h_b], axis=2) # (B, seq_len, hidden_dim * 2)
+        
+        return self.combined_h
+        
+    def backward(self, d_combined_h):
+        df = d_combined_h[:, :, :self.hidden_dim]
+        db = d_combined_h[:, :, self.hidden_dim:]
+        
+        dx_f = self.forward_layer.backward(df)
+        
+        # At t = 0 the db is grad wrt. last hidden state of backward_lstm. This means it has to become the last -> reverse.
+        
+        dx_b_rev = self.backward_layer.backward(np.flip(db, axis=1))
+        dx_b = np.flip(dx_b_rev, axis=1) # Reverse back the inputs
+        
+        return dx_f + dx_b # same shapes
+    
+    def params(self):
+        return self.forward_layer.params() + self.backward_layer.params()
+    
+    
         
