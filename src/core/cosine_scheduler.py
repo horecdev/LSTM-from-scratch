@@ -13,9 +13,7 @@ class CosineScheduler:
             return self.max_lr * (epoch / self.warmup_epochs)
         
         else:
-            total_decay_epochs = self.total_epochs - epoch
-            current_decay_epoch = epoch - self.warmup_epochs
-
-            coeff = current_decay_epoch / total_decay_epochs
-
-            return self.min_lr + (1 / 2) * (self.max_lr - self.min_lr) * (1 + np.cos(cp.pi * coeff))
+            decay_steps = self.total_epochs - self.warmup_epochs
+            current_step = epoch - self.warmup_epochs
+            ratio = current_step / decay_steps
+            return self.min_lr + 0.5 * (self.max_lr - self.min_lr) * (1 + np.cos(np.pi * ratio))

@@ -222,36 +222,5 @@ def convert_to_db(spectrogram, N, is_raw_magnitude):
     db_spectrogram = 20 * cp.log10(mag_norm + 1e-9) # we do 20 instead of 10 because we have amplitude and now power, and amplitude = power^2, so we bring 2 to the front
     # Our reference (bc the inside of log10 is mag/reference) is 1. This means if mag > 1 then spectro val will be > 0, but for now 1 is 0, 0.1 is -20, etc. It is unlikely that magnitude will go past 1 for some reason.
     
-    return cp.maximum(db_spectrogram, -100) # Humans cant hear anything below -100dB
+    return cp.maximum(db_spectrogram, -80) # Humans cant hear anything below -100dB, -80dB is reasonable
         
-def plot_spectrogram(spectrogram, SR, N, hop, title, is_raw_magnitude=False):
-
-    db_spec = convert_to_db(spectrogram, N, is_raw_magnitude) # I guess if we know the magnitude and can turn it into dB. I need more math foundation for that tho.
-
-    # We want to plot bins on the x axis, and time on the y axis
-    db_spec = db_spec.get().T
-    
-    fig, ax = plt.subplots(figsize=(10, 5))
-    # We want instead of indices of samples to see the seconds
-    duration = spectrogram.shape[0] * hop / SR 
-    extent = [0, duration, 0, SR/2] # We want to define the left, right, bottom, top
-    
-    img = ax.imshow(
-        db_spec, 
-        origin='lower', # Put 0Hz at the bottom, not top
-        aspect='auto',
-        extent=extent,
-        cmap='magma',
-        vmin=-100, # black is whatever is less than -80dB.
-        vmax=0 # At most 0dB
-    )
-    
-    # Add the color scale legend
-    cbar = fig.colorbar(img, ax=ax)
-    cbar.set_label('Loudness (dB)')
-
-    ax.set_xlabel('Time (seconds)')
-    ax.set_ylabel('Frequency (Hz)')
-    ax.set_title(title)
-
-    plt.show()

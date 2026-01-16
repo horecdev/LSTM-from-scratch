@@ -19,6 +19,16 @@ class SigmoidActivation:
 def sigmoid(x: Tensor) -> Tensor: # For activation in LSTM
     return 1 / (1 + cp.exp(-x))
 
+class ReLU:
+    def __init__(self):
+        self.mask: Tensor | None = None
+    
+    def forward(self, x):
+        self.mask = (x > 0)
+        return x * self.mask
+    
+    def backward(self, out_grad):
+        return out_grad * self.mask # we zero out grad for x that didnt make it
 
 class Embedding:
     def __init__(self, input_dim, embed_dim):
@@ -48,12 +58,23 @@ class Embedding:
         
 
 class Linear: # Works only as the LSTM head, not normal (B, dim) projection.
-    def __init__(self, input_dim, output_dim):
+    def __init__(self, input_dim, output_dim, act):
+        # for each act we have different init, wrote a bout it in lstm.py file
         self.input_cache: Tensor | None = None
         
+        if act == 'relu':
+            std = cp.sqrt(2.0 / input_dim)
+            self.W = cp.random.normal(0, std, size=(input_dim, output_dim))
+        elif act == 'sigmoid':
+            limit = cp.sqrt(2.0 / (input_dim + output_dim))
+            self.W = cp.random.uniform(-limit, limit, size=(input_dim, output_dim))
+        else: # tanh or others
+            limit = cp.sqrt(6.0 / (input_dim + output_dim))
+            self.W = cp.random.uniform(-limit, limit, size=(input_dim, output_dim))
+            
         limit = cp.sqrt(6 / (input_dim + output_dim)) 
         
-        self.W: Tensor = cp.random.uniform(-limit, limit, size=(input_dim, output_dim)) * 5
+        self.W: Tensor = cp.random.uniform(-limit, limit, size=(input_dim, output_dim))
         self.b: Tensor = cp.zeros(output_dim)
         
         self.dW: Tensor = cp.zeros_like(self.W)

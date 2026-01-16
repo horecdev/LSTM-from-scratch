@@ -12,7 +12,7 @@ def save_checkpoint(file_path, layers_dict, optimizer, epoch, best_loss):
     for i, m_tensor in enumerate(adam_state['m']):
         data_to_save[f"adam_m_{i}"] = m_tensor
     for i, v_tensor in enumerate(adam_state['v']):
-        data_to_save[f"adam_m_{i}"] = v_tensor
+        data_to_save[f"adam_v_{i}"] = v_tensor
     data_to_save["adam_t"] = cp.array(adam_state['t']) # Save as 1 elem array
     data_to_save["epoch"] = cp.array(epoch)
     data_to_save["best_loss"] = cp.array(best_loss)

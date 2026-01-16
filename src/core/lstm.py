@@ -6,14 +6,25 @@ from src.core.layers import sigmoid
 Tensor = npt.NDArray[cp.float64]
 
 class LSTM:
-    def __init__(self, input_dim, hidden_dim, output_dim):
+    def __init__(self, input_dim, hidden_dim):
         # Rule of thumb for initialization:
-        # If Sigmoid / Tanh: Uniform(-limit, limit) where limit is sqrt(6 / (fan_in + fan_out))
+        # If Sigmoid: Uniform(-limit, limit) where limit is sqrt(2 / (fan_in + fan_out))
         # If ReLU: Normal(mean=0, std=sqrt(2/fan_in))
+        # if Tanh or other: Uniform(-limit, limit) where limit is sqrt(6 / (fan_in + fan_out))
+        
+        # Rought code
+        # if act == 'relu':
+        #     std = cp.sqrt(2.0 / input_dim)
+        #     self.W = cp.random.normal(0, std, size=(input_dim, output_dim))
+        # elif act == 'sigmoid':
+        #     limit = cp.sqrt(2.0 / (input_dim + output_dim))
+        #     self.W = cp.random.uniform(-limit, limit, size=(input_dim, output_dim))
+        # else: # tanh or others
+        #     limit = cp.sqrt(6.0 / (input_dim + output_dim))
+        #     self.W = cp.random.uniform(-limit, limit, size=(input_dim, output_dim))
         
         self.input_dim = input_dim
         self.hidden_dim = hidden_dim
-        self.output_dim = output_dim
         
         fan_in = input_dim + hidden_dim
         fan_out = hidden_dim
@@ -231,9 +242,9 @@ class LSTM:
 class BiLSTM:
     # Bidirectional LSTMs work based on computing two hidden states - one looking from 0 -> t, and one from t -> seq_len. We concat and make preds.
     # Having previous states makes no sense here, because we look into the future as far as possible. We have hindsight, and idk what the state would even look like going both ways.
-    def __init__(self, input_dim, hidden_dim, output_dim):
-        self.forward_layer = LSTM(input_dim, hidden_dim, output_dim)
-        self.backward_layer = LSTM(input_dim, hidden_dim, output_dim)
+    def __init__(self, input_dim, hidden_dim):
+        self.forward_layer = LSTM(input_dim, hidden_dim)
+        self.backward_layer = LSTM(input_dim, hidden_dim)
         self.hidden_dim = hidden_dim
         
     def forward(self, x: Tensor, init_f_states=None, init_b_states=None) -> Tensor:

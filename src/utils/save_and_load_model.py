@@ -13,8 +13,8 @@ def save_model(file_path, layer_dict):
         for i, (p, _) in enumerate(params):
             weights_to_save[f"{layer_name}_{i}"] = p
             
-        cp.savez(file_path, **weights_to_save)
-        print(f"Model saved to {file_path}")
+    cp.savez(file_path, **weights_to_save)
+    print(f"Model saved to {file_path}")
         
 def load_model(file_path, layer_dict):
     # We load back the params in-place to variables from params
