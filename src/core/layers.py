@@ -71,10 +71,7 @@ class Linear: # Works only as the LSTM head, not normal (B, dim) projection.
         else: # tanh or others
             limit = cp.sqrt(6.0 / (input_dim + output_dim))
             self.W = cp.random.uniform(-limit, limit, size=(input_dim, output_dim))
-            
-        limit = cp.sqrt(6 / (input_dim + output_dim)) 
-        
-        self.W: Tensor = cp.random.uniform(-limit, limit, size=(input_dim, output_dim))
+
         self.b: Tensor = cp.zeros(output_dim)
         
         self.dW: Tensor = cp.zeros_like(self.W)

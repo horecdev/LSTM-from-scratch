@@ -22,3 +22,12 @@ class Sequential:
                 all_params.extend(layer.params())
                 
         return all_params
+    
+    def summary(self):
+        param_count = 0
+        
+        for p_tuple in self.params():
+            for p, _ in p_tuple:
+                param_count += p.size
+                
+        print(f"Total trainable parameters: {param_count}")
