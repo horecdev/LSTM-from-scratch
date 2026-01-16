@@ -52,7 +52,7 @@ def process_single_file(task, pbar):
 
 def main():
     all_tasks = []
-    splits = [('trainset_56spk', 'train'), ('testset', 'test')] # split map
+    splits = [('trainset_56spk', 'train'), ('testset', 'val')] # split map
     classes = ['clean', 'noisy']
     
     for split_orig, split_target in splits:

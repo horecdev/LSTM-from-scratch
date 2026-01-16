@@ -23,29 +23,32 @@ def save_checkpoint(file_path, layers_dict, optimizer, epoch, best_loss):
     
 def load_checkpoint(file_path, layers_dict, optimizer):
     data = cp.load(file_path)
+    keys = data.npz_file.files
     
     for layer_name, layer_obj in layers_dict.items():
         for i, (p, _) in enumerate(layer_obj.params()):
-            cp.copyto(p, data[f"{layer_name}_{i}"])
+            key = f"{layer_name}_{i}"
+            if key in keys:
+                cp.copyto(p, data[key])
     
     m_list = []
     v_list = []            
     i = 0
-    while f"adam_m_{i}" in data: # They have smae amount of elements so it doesnt matter whether m or v
+    while f"adam_m_{i}" in keys:
         m_list.append(data[f"adam_m_{i}"])
         v_list.append(data[f"adam_v_{i}"])
         i += 1
         
     optimizer.load_state({
-        "m" : m_list,
-        "v" : v_list,
-        "t" : int(data['adam_t'][0]) # get the first elem
+        "m": m_list,
+        "v": v_list,
+        "t": int(data['adam_t']) # cast to int
     })
     
-    start_epoch = int(data["epoch"][0])
-    best_loss = int(data['best_loss'][0])
+    start_epoch = int(data["epoch"])
+    best_loss = float(data['best_loss'])
+    
     print(f"Loaded checkpoint from {file_path} at epoch {start_epoch}")
     return start_epoch, best_loss
-    
         
         

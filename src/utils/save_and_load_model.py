@@ -9,7 +9,6 @@ def save_model(file_path, layer_dict):
     for layer_name, layer_obj in layer_dict.items():
         params = layer_obj.params()
         
-        
         for i, (p, _) in enumerate(params):
             weights_to_save[f"{layer_name}_{i}"] = p
             
@@ -17,20 +16,19 @@ def save_model(file_path, layer_dict):
     print(f"Model saved to {file_path}")
         
 def load_model(file_path, layer_dict):
-    # We load back the params in-place to variables from params
-    # The layer dict can be any amount of models that have params() func
     data = cp.load(file_path)
+    keys = data.npz_file.files
     
     for layer_name, layer_obj in layer_dict.items():
-        params = layer_obj.params()
+        # Get params
+        params = layer_obj.params() 
         
         for i, (p, _) in enumerate(params):
-            key = f"{layer_name}_{i}"
-            
-            if key in data:
+            key = f"{layer_name}_{i}" # Matches the save_checkpoint format
+            if key in keys:
                 cp.copyto(p, data[key])
             else:
-                print(f"Warning: Layer {key} not found in saved file.")
+                print(f"Warning: Key {key} not found in {file_path}")
                 
-    print(f"Model loaded from {file_path}")
+    print(f"Successfully loaded model from {file_path}")
             

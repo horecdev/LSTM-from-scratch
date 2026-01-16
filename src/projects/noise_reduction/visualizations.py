@@ -38,37 +38,37 @@ def plot_spectrogram(spectrogram, SR, N, hop, title, is_raw_magnitude=False):
 def plot_loss_mask(noisy_db, clean_db):
     # How much audio we want to preserve
     speech_to_keep = np.clip((clean_db + 80) / 80, 0, 1)
-    # Diff (noise to remove)
+    # diff (noise to remove)
     noise_to_remove = np.clip((noisy_db - clean_db) / 80, 0, 1)
     
-    # Importance map
-    W_raw = np.maximum(speech_to_keep, noise_to_remove) + 0.05
+    # Loss mask
+    loss_mask = np.maximum(speech_to_keep, noise_to_remove) + 0.05
     # Normalize
-    W = W_raw / np.mean(W_raw)
+    loss_mask = loss_mask / np.mean(loss_mask)
     
-    fig, axes = plt.subplots(1, 4, figsize=(30, 5))
+    fig, axes = plt.subplots(2, 2, figsize=(16, 10))
     
     # Show noisy
-    im0 = axes[0].imshow(noisy_db.T, origin='lower', aspect='auto', cmap='magma', vmin=-80, vmax=0)
-    axes[0].set_title("Noisy Speech")
-    plt.colorbar(im0, ax=axes[0])
+    im0 = axes[0, 0].imshow(noisy_db.T, origin='lower', aspect='auto', cmap='magma', vmin=-80, vmax=0)
+    axes[0, 0].set_title("Noisy Speech")
+    plt.colorbar(im0, ax=axes[0, 0], label='dB')
     
     # Show clean
-    im1 = axes[1].imshow(clean_db.T, origin='lower', aspect='auto', cmap='magma', vmin=-80, vmax=0)
-    axes[1].set_title("Clean Speech")
-    plt.colorbar(im0, ax=axes[1])
+    im1 = axes[0, 1].imshow(clean_db.T, origin='lower', aspect='auto', cmap='magma', vmin=-80, vmax=0)
+    axes[0, 1].set_title("Clean Speech")
+    plt.colorbar(im1, ax=axes[0, 1], label='dB')
     
     # Noise to remove
-    im1 = axes[2].imshow(noise_to_remove.T, origin='lower', aspect='auto', cmap='magma')
-    axes[2].set_title("Noise To Remove")
-    plt.colorbar(im1, ax=axes[2])
+    im2 = axes[1, 0].imshow(noise_to_remove.T, origin='lower', aspect='auto', cmap='magma')
+    axes[1, 0].set_title("Noise To Remove")
+    plt.colorbar(im2, ax=axes[1, 0])
     
-    # Final Loss Mask
-    im2 = axes[3].imshow(W.T, origin='lower', aspect='auto', cmap='magma')
-    axes[3].set_title("Loss Mask")
-    plt.colorbar(im2, ax=axes[3])
+    # Loss Mask
+    im3 = axes[1, 1].imshow(loss_mask.T, origin='lower', aspect='auto', cmap='magma')
+    axes[1, 1].set_title("Loss Mask")
+    plt.colorbar(im3, ax=axes[1, 1])
     
-    for ax in axes:
+    for ax in axes.flat:
         ax.set_xlabel("Time (Frames)")
         ax.set_ylabel("Freq (Bins)")
         
@@ -78,9 +78,8 @@ def plot_loss_mask(noisy_db, clean_db):
 
 def plot_denoising_comparison(n_spec, c_spec, pred_mask, sr, N, hop):
     # Convert complex specs to dB
-    n_db = convert_to_db(n_spec, N, is_raw_magnitude=False)
-    c_db = convert_to_db(c_spec, N, is_raw_magnitude=False)
-    mask = pred_mask
+    n_db = convert_to_db(n_spec, N, is_raw_magnitude=False).get()
+    c_db = convert_to_db(c_spec, N, is_raw_magnitude=False).get()
     
     duration = n_db.shape[0] * hop / sr
     extent = [0, duration, 0, sr/2]
@@ -98,7 +97,7 @@ def plot_denoising_comparison(n_spec, c_spec, pred_mask, sr, N, hop):
     plt.colorbar(im1, ax=axes[1])
     
     # Mask
-    im2 = axes[2].imshow(mask.T, origin='lower', aspect='auto', extent=extent, cmap='binary_r', vmin=0, vmax=1)
+    im2 = axes[2].imshow(pred_mask.T, origin='lower', aspect='auto', extent=extent, cmap='binary_r', vmin=0, vmax=1)
     axes[2].set_title("Predicted Mask")
     plt.colorbar(im2, ax=axes[2])
     
