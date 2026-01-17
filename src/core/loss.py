@@ -82,3 +82,45 @@ class SigmoidWeightedBCELoss:
         # This is grad wrt. logits, the derivative of lsos wrt. preds (just BCE without sigmoid) is (p - y) / (p(1-p)) but the p's
         # are activated by sigmoid and the derivative of loss wrt. logits is dL/dpreds * dpreds/dlogits and dpreds/dlogits is p(1-p) so it simplifies to p - y.
         return (self.weights * (self.preds - self.targets)) / self.preds.size # multiplying by weights decreases grads of non important samples
+    
+class SigmoidWeightedBCEFocalLoss:
+    def __init__(self, gamma):
+        self.gamma = gamma
+        self.preds: Tensor | None = None
+        self.targets: Tensor | None = None
+        self.weights: Tensor | None = None
+        
+    # Just like SoftmaxCrossEntropy, BCELoss is more stable with Sigmoid activation (no blowing into NaNs)
+        
+    # The formula for BCE is -[y * log(p) + (1 - y)log(1 - p)]
+    # If target is 1 then formula becomes -log(p) so it is 0 when p is 1. When p - 0.01 then loss is like 4.6
+    # If target is 0 then formula becomes -log(1 - p) so it is 0 when p = 0 and a lot when p = 0.99
+    # It is more aggresive than MSE because in MSE max loss per sample is 1.0 (for masks)
+        
+    def forward(self, logits: Tensor, targets: Tensor, weights: Tensor) -> tuple[float, Tensor]:
+        # Do sigmoid
+        self.preds = sigmoid(logits)
+        self.preds = cp.clip(self.preds, 1e-7, 1 - 1e-7)
+        self.targets = targets
+        self.weights = weights
+
+        bce = -(targets * cp.log(self.preds) + (1 - targets) * cp.log(1 - self.preds))
+        self.focal_mask = cp.abs(self.targets - self.preds) ** self.gamma # Even tho it relies on preds (and therefore logits) we treat it as a constant
+        self.comb_weights = self.weights * self.focal_mask # We can normalize again, even tho our weights come in normalized already. Normalization doesnt care about span
+        
+        self.norm_factor = cp.sum(self.comb_weights + 1e-7) # We divide by sum
+        loss = cp.sum(bce * self.comb_weights) / self.norm_factor 
+        # By doing cp.sum(bce * comb_weights) / self.norm we are counting loss for samples that actually contributed
+        # Intuition: we sum loss between samples by how they contribute accounting for weights, THEN we take the mean (by dividing by sum of weights)
+        # It is like taking a weighted sum of your grades, but with weights that arent necessarily on scale 1-6. If wej ust divided by the count we would get bad scale
+        return loss, self.preds
+    
+    def backward(self):
+        # This is grad wrt. logits, the derivative of lsos wrt. preds (just BCE without sigmoid) is (p - y) / (p(1-p)) but the p's
+        # are activated by sigmoid and the derivative of loss wrt. logits is dL/dpreds * dpreds/dlogits and dpreds/dlogits is p(1-p) so it simplifies to p - y.
+        return (self.comb_weights * (self.preds - self.targets)) / self.norm_factor # multiplying by weights decreases grads of non important samples
+    
+        # Intuition: when calculating loss, each sample contributes bce * comb_weights / norm_factor
+        # This means grad should be loss wrt. to that sample * weight / norm_factor
+        # Thinking about it like grades, its that if you got 6 weight 1 and 1 weights 4, the 1 contributes 4 / 5 and 6 contributes 1 / 5 (comb_weights * norm_factor)
+        

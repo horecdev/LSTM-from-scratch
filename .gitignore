@@ -3,3 +3,4 @@ voice_dataset/
 .idea/
 test_sample.wav
 best_denoise.npz
+best_denoise_focal.npz

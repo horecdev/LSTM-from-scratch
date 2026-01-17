@@ -40,12 +40,12 @@ def plot_spectrogram(spectrogram, SR, N, hop, title, is_raw_magnitude=False, sav
     
 def plot_loss_mask(noisy_db, clean_db, save_path=None):
     # How much audio we want to preserve
-    speech_to_keep = np.clip((clean_db + 80) / 80, 0, 1)
+    speech_to_keep = np.clip((clean_db + 80) / 80, 0, 1) 
     # diff (noise to remove)
     noise_to_remove = np.clip((noisy_db - clean_db) / 80, 0, 1)
     
     # Loss mask
-    loss_mask = np.maximum(speech_to_keep, noise_to_remove) + 0.05
+    loss_mask = np.maximum(speech_to_keep, noise_to_remove)
     # Normalize
     loss_mask = loss_mask / np.mean(loss_mask)
     

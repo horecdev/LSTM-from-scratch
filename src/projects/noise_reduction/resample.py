@@ -5,8 +5,8 @@ import soundfile as sf
 from fourier_transform import filter_downsample
 
 sr_target = 16000
-path_to_wav = r"C:\Users\horec\Downloads\Noisy Sample.mp4"
-target_path = r"C:\Users\horec\Downloads\test2.wav"
+path_to_wav = r"C:\Users\horec\Downloads\Rafonix_piwo.mp4"
+target_path = r"C:\Users\horec\Downloads\Noise3.wav"
 
 audio, _ = lb.load(path_to_wav, sr=sr_target, mono=True)
 
