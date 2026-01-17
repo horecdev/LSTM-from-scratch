@@ -37,14 +37,13 @@ def process_single_file(task, pbar):
         spec_gpu, _ = compute_stft_vectorized(audio_gpu, N, hop)
         mag_cpu = cp.abs(spec_gpu).get().astype(np.float32) # also squash to float 32
         
-        # Save directly to final path
         np.save(save_path, mag_cpu)
         
         del audio_gpu, spec_gpu, mag_cpu
         return True
 
     except Exception as e:
-        # Cleanup partial file if crash occurs during save
+        # Cleanup if except
         if os.path.exists(save_path):
             os.remove(save_path)
         pbar.write(f"ERROR: {os.path.basename(src)} -> {str(e)}")

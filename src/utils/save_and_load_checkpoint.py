@@ -1,6 +1,6 @@
 import cupy as cp
 
-def save_checkpoint(file_path, layers_dict, optimizer, epoch, best_loss):
+def save_checkpoint(file_path, layers_dict, optimizer, epoch, best_loss, train_loss_history, val_loss_history):
     data_to_save = {}
     
     for layer_name, layer_obj in layers_dict.items():
@@ -16,6 +16,8 @@ def save_checkpoint(file_path, layers_dict, optimizer, epoch, best_loss):
     data_to_save["adam_t"] = cp.array(adam_state['t']) # Save as 1 elem array
     data_to_save["epoch"] = cp.array(epoch)
     data_to_save["best_loss"] = cp.array(best_loss)
+    data_to_save["train_loss_history"] = cp.array(train_loss_history)
+    data_to_save["val_loss_history"] = cp.array(val_loss_history)
     
     cp.savez(file_path, **data_to_save)
     
@@ -47,8 +49,10 @@ def load_checkpoint(file_path, layers_dict, optimizer):
     
     start_epoch = int(data["epoch"])
     best_loss = float(data['best_loss'])
+    train_loss_history = data["train_loss_history"].tolist()
+    val_loss_history = data["val_loss_history"].tolist()
     
     print(f"Loaded checkpoint from {file_path} at epoch {start_epoch}")
-    return start_epoch, best_loss
+    return start_epoch, best_loss, train_loss_history, val_loss_history
         
         

@@ -2,4 +2,4 @@ __pycache__/
 voice_dataset/
 .idea/
 test_sample.wav
-models/
+best_denoise.npz

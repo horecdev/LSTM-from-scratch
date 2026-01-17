@@ -114,7 +114,7 @@ def filter_downsample(audio, SR_orig, SR_target):
     # new_indices go from 0 to N - 1 (our new N=target_samples)
     int_parts = new_indices.astype(int)
     fractions = new_indices - int_parts
-    padded_audio = cp.append(filtered_audio, filtered_audio[-1]) # We double least sample, but dont add it to indices
+    padded_audio = cp.append(filtered_audio, filtered_audio[-1]) # We double last sample, but dont add it to indices
     downsampled_audio = (1 - fractions) * padded_audio[int_parts] + fractions * padded_audio[int_parts + 1] # last sample is just the last sample if we get to N
     # Take the fraction part of first index, then fraction of second, based on where the index is.
     

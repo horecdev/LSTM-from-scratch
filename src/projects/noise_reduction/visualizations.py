@@ -3,7 +3,7 @@ import numpy as np
 from src.projects.noise_reduction.fourier_transform import convert_to_db
 
     
-def plot_spectrogram(spectrogram, SR, N, hop, title, is_raw_magnitude=False):
+def plot_spectrogram(spectrogram, SR, N, hop, title, is_raw_magnitude=False, save_path=None):
 
     db_spec = convert_to_db(spectrogram, N, is_raw_magnitude) # I guess if we know the magnitude and can turn it into dB. I need more math foundation for that tho.
 
@@ -32,10 +32,13 @@ def plot_spectrogram(spectrogram, SR, N, hop, title, is_raw_magnitude=False):
     ax.set_xlabel('Time (seconds)')
     ax.set_ylabel('Frequency (Hz)')
     ax.set_title(title)
+    
+    if save_path is not None:
+        plt.savefig(save_path)
 
     plt.show()
     
-def plot_loss_mask(noisy_db, clean_db):
+def plot_loss_mask(noisy_db, clean_db, save_path=None):
     # How much audio we want to preserve
     speech_to_keep = np.clip((clean_db + 80) / 80, 0, 1)
     # diff (noise to remove)
@@ -73,10 +76,11 @@ def plot_loss_mask(noisy_db, clean_db):
         ax.set_ylabel("Freq (Bins)")
         
     plt.tight_layout()
-    plt.savefig('loss_mask.png')
+    if save_path is not None:
+        plt.savefig(save_path)
     plt.show()
 
-def plot_denoising_comparison(n_spec, c_spec, pred_mask, sr, N, hop):
+def plot_denoising_comparison(n_spec, c_spec, pred_mask, sr, N, hop, save_path=None):
     # Convert complex specs to dB
     n_db = convert_to_db(n_spec, N, is_raw_magnitude=False).get()
     c_db = convert_to_db(c_spec, N, is_raw_magnitude=False).get()
@@ -106,5 +110,6 @@ def plot_denoising_comparison(n_spec, c_spec, pred_mask, sr, N, hop):
     axes[2].set_xlabel("Time (seconds)")
     
     plt.tight_layout()
-    plt.savefig('denoising_comparison.png')
+    if save_path is not None:
+        plt.savefig(save_path)
     plt.show()

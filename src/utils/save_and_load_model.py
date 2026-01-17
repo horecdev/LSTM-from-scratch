@@ -27,8 +27,6 @@ def load_model(file_path, layer_dict):
             key = f"{layer_name}_{i}" # Matches the save_checkpoint format
             if key in keys:
                 cp.copyto(p, data[key])
-            else:
-                print(f"Warning: Key {key} not found in {file_path}")
                 
     print(f"Successfully loaded model from {file_path}")
             

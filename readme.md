@@ -1,4 +1,3 @@
 ### Plans:
-- Seq2Seq
-- Some music gen
-- Predictive Maintanance (NASA life-left)
+- Voice denoising
+- Speaker separation (2 masks for each speaker in audio)
