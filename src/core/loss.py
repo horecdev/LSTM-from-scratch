@@ -90,12 +90,7 @@ class SigmoidWeightedBCEFocalLoss:
         self.targets: Tensor | None = None
         self.weights: Tensor | None = None
         
-    # Just like SoftmaxCrossEntropy, BCELoss is more stable with Sigmoid activation (no blowing into NaNs)
-        
-    # The formula for BCE is -[y * log(p) + (1 - y)log(1 - p)]
-    # If target is 1 then formula becomes -log(p) so it is 0 when p is 1. When p - 0.01 then loss is like 4.6
-    # If target is 0 then formula becomes -log(1 - p) so it is 0 when p = 0 and a lot when p = 0.99
-    # It is more aggresive than MSE because in MSE max loss per sample is 1.0 (for masks)
+    # Read BCELoss first 
         
     def forward(self, logits: Tensor, targets: Tensor, weights: Tensor) -> tuple[float, Tensor]:
         # Do sigmoid
